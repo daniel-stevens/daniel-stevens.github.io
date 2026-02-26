@@ -120,13 +120,16 @@ function beginTransformation() {
   document.body.style.overflow = 'hidden';
 
   setTimeout(() => {
+    const canvas = document.getElementById('threejs-canvas');
+    // Ensure canvas is a direct child of body (guards against DOM nesting issues)
+    document.body.appendChild(canvas);
+
     Array.from(document.body.children).forEach((el) => {
       if (el.id !== 'threejs-canvas' && el.tagName !== 'SCRIPT' && el.tagName !== 'STYLE') {
         el.style.display = 'none';
       }
     });
 
-    const canvas = document.getElementById('threejs-canvas');
     canvas.style.display = 'block';
     document.body.style.opacity = '1';
 
