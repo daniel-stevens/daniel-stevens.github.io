@@ -43,8 +43,14 @@ describe('index.html structure', () => {
     assert.match(html, /id=["']prompt-trigger["']/);
   });
 
-  it('has the blinking cursor element', () => {
-    assert.match(html, /id=["']prompt-cursor["']/);
+  it('has the overengineer button', () => {
+    assert.match(html, /overengineer/i);
+    assert.match(html, /<button/i);
+  });
+
+  it('has the flight HUD element', () => {
+    assert.match(html, /id=["']flight-hud["']/);
+    assert.match(html, /WASD/);
   });
 });
 
@@ -70,7 +76,6 @@ describe('scene.js constants', () => {
 
     for (const match of colorKeyMatches) {
       const category = match.match(/['"]([^'"]+)['"]\s*:/)[1];
-      // Check that this category appears as a book category value
       const escaped = category.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const regex = new RegExp(`category:\\s*['"]${escaped}['"]`);
       assert.match(scene, regex, `Category "${category}" defined in CATEGORY_COLORS but not used by any book`);
@@ -90,17 +95,15 @@ describe('scene.js lighting values', () => {
     assert.ok(intensity >= 1.0, `AmbientLight intensity ${intensity} < 1.0`);
   });
 
-  it('PointLight intensities >= 100 (inverse-square needs high values)', () => {
+  it('PointLight intensities >= 100 for scene lights (inverse-square needs high values)', () => {
     const matches = [...scene.matchAll(/PointLight\(\s*0x[0-9a-fA-F]+\s*,\s*([\d.]+)/g)];
     assert.ok(matches.length >= 3, `Expected >= 3 PointLights, found ${matches.length}`);
-    for (const m of matches) {
-      const intensity = parseFloat(m[1]);
-      assert.ok(intensity >= 100, `PointLight intensity ${intensity} < 100 — will be invisible with inverse-square falloff`);
-    }
+    // Check at least 3 main scene lights have high intensity (engine glow starts at 0)
+    const highIntensity = matches.filter(m => parseFloat(m[1]) >= 100);
+    assert.ok(highIntensity.length >= 3, `Expected >= 3 PointLights with intensity >= 100, found ${highIntensity.length}`);
   });
 
   it('star particle size >= 1.0 (prevents sub-pixel stars)', () => {
-    // The starfield uses PointsMaterial in createStarfield
     const starfieldFn = scene.match(/function createStarfield[\s\S]*?^}/m);
     assert.ok(starfieldFn, 'createStarfield function not found');
     const sizeMatch = starfieldFn[0].match(/size:\s*([\d.]+)/);
@@ -139,7 +142,6 @@ describe('scene.js renderer config', () => {
 
 describe('scene.js transition resilience', () => {
   it('beginTransformation reparents canvas to body before hiding siblings', () => {
-    // Extract beginTransformation function body
     const fnStart = scene.indexOf('function beginTransformation');
     assert.ok(fnStart !== -1, 'beginTransformation function not found');
 
@@ -174,5 +176,63 @@ describe('scene.js post-processing', () => {
 
   it('has a fallback renderer if post-processing fails', () => {
     assert.match(scene, /catch\s*\([^)]*\)\s*\{[\s\S]*?renderer\.render/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Flight System
+// ---------------------------------------------------------------------------
+
+describe('scene.js flight system', () => {
+  it('has input handling with WASD and arrow keys', () => {
+    assert.match(scene, /createInputState/);
+    assert.match(scene, /KeyW/);
+    assert.match(scene, /KeyA/);
+    assert.match(scene, /KeyS/);
+    assert.match(scene, /KeyD/);
+    assert.match(scene, /ArrowUp/);
+    assert.match(scene, /ArrowDown/);
+    assert.match(scene, /ArrowLeft/);
+    assert.match(scene, /ArrowRight/);
+    assert.match(scene, /Space/);
+  });
+
+  it('has ship physics with thrust and drag', () => {
+    assert.match(scene, /createShipPhysics/);
+    assert.match(scene, /updateShipPhysics/);
+    assert.match(scene, /thrustAccel/);
+    assert.match(scene, /drag/);
+    assert.match(scene, /maxSpeed/);
+    assert.match(scene, /baseSpeed/);
+  });
+
+  it('has chase camera (no OrbitControls)', () => {
+    assert.match(scene, /updateChaseCamera/);
+    assert.doesNotMatch(scene, /OrbitControls/, 'OrbitControls should be removed');
+  });
+
+  it('has infinite space wrapping for stars, particles, and books', () => {
+    assert.match(scene, /wrapStarfield/);
+    assert.match(scene, /wrapAmbientParticles/);
+    assert.match(scene, /wrapBooks/);
+  });
+
+  it('has thruster particles', () => {
+    assert.match(scene, /createThrusterParticles/);
+    assert.match(scene, /updateThrusterParticles/);
+  });
+
+  it('has RGB color cycling on title', () => {
+    assert.match(scene, /setHSL/);
+    assert.match(scene, /hue/);
+  });
+
+  it('has flight HUD display function', () => {
+    assert.match(scene, /showFlightHUD/);
+    assert.match(scene, /flight-hud/);
+  });
+
+  it('ship group assembles title, tags, and links', () => {
+    assert.match(scene, /shipGroup\.add/);
   });
 });
