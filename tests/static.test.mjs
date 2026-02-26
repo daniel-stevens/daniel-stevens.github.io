@@ -92,15 +92,15 @@ describe('scene.js lighting values', () => {
     const match = scene.match(/AmbientLight\(\s*0x[0-9a-fA-F]+\s*,\s*([\d.]+)\s*\)/);
     assert.ok(match, 'AmbientLight not found');
     const intensity = parseFloat(match[1]);
-    assert.ok(intensity >= 0.5, `AmbientLight intensity ${intensity} < 0.5`);
+    assert.ok(intensity >= 0.2, `AmbientLight intensity ${intensity} < 0.2`);
   });
 
-  it('PointLight intensities >= 100 for scene lights (inverse-square needs high values)', () => {
+  it('PointLight intensities >= 50 for scene lights (inverse-square needs meaningful values)', () => {
     const matches = [...scene.matchAll(/PointLight\(\s*0x[0-9a-fA-F]+\s*,\s*([\d.]+)/g)];
     assert.ok(matches.length >= 3, `Expected >= 3 PointLights, found ${matches.length}`);
-    // Check at least 3 main scene lights have high intensity (engine glow starts at 0)
-    const highIntensity = matches.filter(m => parseFloat(m[1]) >= 100);
-    assert.ok(highIntensity.length >= 3, `Expected >= 3 PointLights with intensity >= 100, found ${highIntensity.length}`);
+    // Check at least 3 main scene lights have meaningful intensity (engine glow starts at 0)
+    const highIntensity = matches.filter(m => parseFloat(m[1]) >= 50);
+    assert.ok(highIntensity.length >= 3, `Expected >= 3 PointLights with intensity >= 50, found ${highIntensity.length}`);
   });
 
   it('star particle size >= 1.0 (prevents sub-pixel stars)', () => {

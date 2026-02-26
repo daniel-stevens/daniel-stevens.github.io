@@ -287,10 +287,10 @@ function initThreeScene(canvas) {
 
   // Lighting
   const lights = {
-    ambient: new THREE.AmbientLight(0x334466, 0.8),
-    key: new THREE.PointLight(0x4488ff, 400, 100),
-    fill: new THREE.PointLight(0xff6644, 200, 80),
-    rim: new THREE.PointLight(0x44ffaa, 250, 60),
+    ambient: new THREE.AmbientLight(0x334466, 0.4),
+    key: new THREE.PointLight(0x4488ff, 150, 100),
+    fill: new THREE.PointLight(0xff6644, 80, 80),
+    rim: new THREE.PointLight(0x44ffaa, 100, 60),
   };
   lights.key.position.set(10, 10, 10);
   lights.fill.position.set(-10, -5, 5);
@@ -331,7 +331,7 @@ function initThreeScene(canvas) {
     composer.addPass(new RenderPass(scene, camera));
     bloomPass = new UnrealBloomPass(
       new THREE.Vector2(window.innerWidth, window.innerHeight),
-      0.6, 0.3, 0.3
+      0.3, 0.2, 0.6
     );
     composer.addPass(bloomPass);
     composer.addPass(new OutputPass());
@@ -383,7 +383,7 @@ function initThreeScene(canvas) {
 // ---------------------------------------------------------------------------
 
 function createStarfield(scene) {
-  const count = isMobile ? 2000 : 5000;
+  const count = isMobile ? 1000 : 3000;
   const positions = new Float32Array(count * 3);
   const colors = new Float32Array(count * 3);
 
@@ -408,7 +408,7 @@ function createStarfield(scene) {
     size: 1.5,
     vertexColors: true,
     transparent: true,
-    opacity: 0.6,
+    opacity: 0.4,
     sizeAttenuation: true,
   });
 
@@ -422,14 +422,14 @@ function createStarfield(scene) {
 // ---------------------------------------------------------------------------
 
 function createAmbientParticles(scene) {
-  const count = isMobile ? 800 : 2000;
+  const count = isMobile ? 300 : 800;
   const positions = new Float32Array(count * 3);
   const velocities = new Float32Array(count * 3);
 
   for (let i = 0; i < count; i++) {
-    positions[i * 3] = (Math.random() - 0.5) * 60;
-    positions[i * 3 + 1] = (Math.random() - 0.5) * 40;
-    positions[i * 3 + 2] = (Math.random() - 0.5) * 60;
+    positions[i * 3] = (Math.random() - 0.5) * 80;
+    positions[i * 3 + 1] = (Math.random() - 0.5) * 60;
+    positions[i * 3 + 2] = (Math.random() - 0.5) * 80;
     velocities[i * 3] = (Math.random() - 0.5) * 0.01;
     velocities[i * 3 + 1] = (Math.random() - 0.5) * 0.01;
     velocities[i * 3 + 2] = (Math.random() - 0.5) * 0.01;
@@ -439,10 +439,10 @@ function createAmbientParticles(scene) {
   geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
 
   const mat = new THREE.PointsMaterial({
-    size: 0.4,
+    size: 0.3,
     color: 0x8888ff,
     transparent: true,
-    opacity: 0.25,
+    opacity: 0.08,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
   });
@@ -473,7 +473,7 @@ function createTitleText(font) {
   const mat = new THREE.MeshStandardMaterial({
     color: 0x4488ff,
     emissive: 0x2244aa,
-    emissiveIntensity: 0.4,
+    emissiveIntensity: 0.25,
     metalness: 0.8,
     roughness: 0.2,
     transparent: true,
@@ -516,7 +516,7 @@ function createBigTagText(font) {
     const mat = new THREE.MeshStandardMaterial({
       color: 0x44ff88,
       emissive: 0x22aa44,
-      emissiveIntensity: 0.4,
+      emissiveIntensity: 0.2,
       metalness: 0.3,
       roughness: 0.6,
       transparent: true,
@@ -567,7 +567,7 @@ function createInteractiveLinks(font, camera, canvas) {
     const mat = new THREE.MeshStandardMaterial({
       color: 0xff6644,
       emissive: 0xaa3322,
-      emissiveIntensity: 0.5,
+      emissiveIntensity: 0.25,
       metalness: 0.6,
       roughness: 0.3,
       transparent: true,
@@ -814,7 +814,7 @@ function wrapStarfield(stars, shipPos) {
 function wrapAmbientParticles(ambient, shipPos) {
   const pos = ambient.positions;
   const vel = ambient.velocities;
-  const halfW = 30, halfH = 20, halfD = 30;
+  const halfW = 40, halfH = 30, halfD = 40;
 
   for (let i = 0; i < pos.length; i += 3) {
     pos[i] += vel[i];
@@ -936,8 +936,8 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
       if (elements.titleMesh) {
         const speedBoost = 1 + (physics.speed / physics.maxSpeed) * 0.5;
         const hue = (elapsed * 0.3 * speedBoost) % 1;
-        elements.titleMesh.material.color.setHSL(hue, 1.0, 0.45);
-        elements.titleMesh.material.emissive.setHSL(hue, 1.0, 0.2);
+        elements.titleMesh.material.color.setHSL(hue, 0.9, 0.35);
+        elements.titleMesh.material.emissive.setHSL(hue, 0.9, 0.12);
       }
     }
 
