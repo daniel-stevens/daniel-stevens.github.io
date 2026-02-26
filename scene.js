@@ -57,7 +57,7 @@ const CATEGORY_COLORS = {
 const isMobile = window.innerWidth < 768;
 
 // ---------------------------------------------------------------------------
-// Preload font immediately (so it's ready when user clicks)
+// Preload font immediately
 // ---------------------------------------------------------------------------
 
 let preloadedFont = null;
@@ -66,7 +66,7 @@ fontLoader.load(
   'https://cdn.jsdelivr.net/npm/three@0.172.0/examples/fonts/helvetiker_bold.typeface.json',
   (font) => { preloadedFont = font; },
   undefined,
-  (err) => { console.error('Font load failed:', err); }
+  (err) => { console.warn('Font load failed:', err); }
 );
 
 // ---------------------------------------------------------------------------
@@ -74,9 +74,11 @@ fontLoader.load(
 // ---------------------------------------------------------------------------
 
 const trigger = document.getElementById('prompt-trigger');
-const cursor = document.getElementById('prompt-cursor');
+const cursorEl = document.getElementById('prompt-cursor');
 
-trigger.addEventListener('click', startTypingAnimation, { once: true });
+if (trigger) {
+  trigger.addEventListener('click', startTypingAnimation, { once: true });
+}
 
 // ---------------------------------------------------------------------------
 // Phase 2 — Typing animation
@@ -85,7 +87,7 @@ trigger.addEventListener('click', startTypingAnimation, { once: true });
 function startTypingAnimation() {
   const textSpan = document.createElement('span');
   textSpan.style.color = '#333';
-  trigger.insertBefore(textSpan, cursor);
+  trigger.insertBefore(textSpan, cursorEl);
 
   let i = 0;
   const speed = 30;
@@ -94,21 +96,20 @@ function startTypingAnimation() {
     if (i < PROMPT_TEXT.length) {
       textSpan.textContent += PROMPT_TEXT[i];
       i++;
-      // Subtle flicker in last 40 %
       if (i > PROMPT_TEXT.length * 0.6 && Math.random() > 0.9) {
         document.body.style.filter = 'brightness(0.95)';
         setTimeout(() => { document.body.style.filter = ''; }, 60);
       }
     } else {
       clearInterval(interval);
-      cursor.style.display = 'none';
+      cursorEl.style.display = 'none';
       setTimeout(beginTransformation, 1200);
     }
   }, speed);
 }
 
 // ---------------------------------------------------------------------------
-// Phase 2b — Transition: fade HTML, reveal canvas
+// Phase 2b — Transition
 // ---------------------------------------------------------------------------
 
 function beginTransformation() {
@@ -119,7 +120,6 @@ function beginTransformation() {
   document.body.style.overflow = 'hidden';
 
   setTimeout(() => {
-    // Hide all HTML except canvas & scripts
     Array.from(document.body.children).forEach((el) => {
       if (el.id !== 'threejs-canvas' && el.tagName !== 'SCRIPT' && el.tagName !== 'STYLE') {
         el.style.display = 'none';
@@ -130,7 +130,11 @@ function beginTransformation() {
     canvas.style.display = 'block';
     document.body.style.opacity = '1';
 
-    initThreeScene(canvas);
+    try {
+      initThreeScene(canvas);
+    } catch (e) {
+      console.error('Three.js init failed:', e);
+    }
   }, 1600);
 }
 
@@ -139,63 +143,40 @@ function beginTransformation() {
 // ---------------------------------------------------------------------------
 
 function initThreeScene(canvas) {
-  // ---- Renderer ----
+  // ---- Renderer (no tone mapping — OutputPass will handle it) ----
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer.toneMapping = THREE.ReinhardToneMapping;
-  renderer.toneMappingExposure = 1.2;
+  renderer.toneMapping = THREE.NoToneMapping;
 
   // ---- Scene ----
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x000008);
-  scene.fog = new THREE.FogExp2(0x000008, 0.012);
+  scene.background = new THREE.Color(0x020210);
 
-  // ---- Camera ----
+  // ---- Camera (start at final position — we'll handle the intro differently) ----
   const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 500);
-  camera.position.set(0, 0, 50); // start far for fly-in
-
-  // ---- Post-processing ----
-  const composer = new EffectComposer(renderer);
-  composer.addPass(new RenderPass(scene, camera));
-
-  const bloomPass = new UnrealBloomPass(
-    new THREE.Vector2(window.innerWidth, window.innerHeight),
-    1.4, 0.6, 0.1
-  );
-  composer.addPass(bloomPass);
-  composer.addPass(new OutputPass());
-
-  // ---- Controls ----
-  const controls = new OrbitControls(camera, canvas);
-  controls.enableDamping = true;
-  controls.dampingFactor = 0.05;
-  controls.minDistance = 5;
-  controls.maxDistance = 80;
-  controls.autoRotate = true;
-  controls.autoRotateSpeed = 0.3;
+  camera.position.set(0, 0, 15);
 
   // ---- Lighting ----
-  scene.add(new THREE.AmbientLight(0x111122, 0.4));
+  scene.add(new THREE.AmbientLight(0x222244, 0.6));
 
-  const keyLight = new THREE.PointLight(0x4488ff, 2, 100);
+  const keyLight = new THREE.PointLight(0x4488ff, 3, 100);
   keyLight.position.set(10, 10, 10);
   scene.add(keyLight);
 
-  const fillLight = new THREE.PointLight(0xff6644, 1, 80);
+  const fillLight = new THREE.PointLight(0xff6644, 1.5, 80);
   fillLight.position.set(-10, -5, 5);
   scene.add(fillLight);
 
-  const rimLight = new THREE.PointLight(0x44ffaa, 1.5, 60);
+  const rimLight = new THREE.PointLight(0x44ffaa, 2, 60);
   rimLight.position.set(0, 5, -15);
   scene.add(rimLight);
 
-  // ---- Build non-font elements immediately ----
+  // ---- Build non-font elements ----
   const stars = createStarfield(scene);
   const ambient = createAmbientParticles(scene);
   const bookGroup = createFloatingBooks(scene);
 
-  // Start with partial elements so the scene renders right away
   const elements = {
     stars,
     ambient,
@@ -205,24 +186,53 @@ function initThreeScene(canvas) {
     bookGroup,
   };
 
-  // Start animation loop and resize handler immediately
-  startAnimationLoop(composer, controls, elements, camera);
-  setupResize(camera, renderer, composer, bloomPass);
+  // ---- Try to set up post-processing, fall back to basic rendering ----
+  let composer = null;
+  let bloomPass = null;
+  let renderFn;
 
-  // Fly camera in and fade in book cards immediately
-  animateIntroBase(elements, camera);
+  try {
+    composer = new EffectComposer(renderer);
+    composer.addPass(new RenderPass(scene, camera));
+    bloomPass = new UnrealBloomPass(
+      new THREE.Vector2(window.innerWidth, window.innerHeight),
+      1.4, 0.5, 0.15
+    );
+    composer.addPass(bloomPass);
+    composer.addPass(new OutputPass());
+    renderFn = () => composer.render();
+  } catch (e) {
+    console.warn('Post-processing failed, using basic renderer:', e);
+    renderer.toneMapping = THREE.ReinhardToneMapping;
+    renderer.toneMappingExposure = 1.2;
+    renderFn = () => renderer.render(scene, camera);
+  }
+
+  // ---- Controls (disabled until intro finishes) ----
+  const controls = new OrbitControls(camera, canvas);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.05;
+  controls.minDistance = 5;
+  controls.maxDistance = 80;
+  controls.autoRotate = true;
+  controls.autoRotateSpeed = 0.3;
+  controls.enabled = false; // disabled during intro
+
+  // ---- Start animation loop ----
+  const state = { introActive: true, introStart: performance.now() };
+
+  startAnimationLoop(renderFn, controls, elements, camera, state);
+  setupResize(camera, renderer, composer, bloomPass);
 
   // ---- Add text elements when font is ready ----
   function onFontReady(font) {
-    const titleMesh = createTitleText(font, scene);
-    const tagMeshes = createBigTagText(font, scene);
-    const linkMeshes = createInteractiveLinks(font, scene, camera, canvas);
-
-    elements.titleMesh = titleMesh;
-    elements.tagMeshes = tagMeshes;
-    elements.linkMeshes = linkMeshes;
-
-    animateIntroText(elements, camera);
+    try {
+      elements.titleMesh = createTitleText(font, scene);
+      elements.tagMeshes = createBigTagText(font, scene);
+      elements.linkMeshes = createInteractiveLinks(font, scene, camera, canvas);
+    } catch (e) {
+      console.warn('Text creation failed:', e);
+    }
   }
 
   if (preloadedFont) {
@@ -231,12 +241,9 @@ function initThreeScene(canvas) {
     const check = setInterval(() => {
       if (preloadedFont) { clearInterval(check); onFontReady(preloadedFont); }
     }, 100);
-    // Timeout: give up on font after 10s
-    setTimeout(() => { clearInterval(check); }, 10000);
+    setTimeout(() => clearInterval(check), 10000);
   }
 }
-
-// (Scene elements are now built directly inside initThreeScene)
 
 // ---------------------------------------------------------------------------
 // Starfield
@@ -250,14 +257,14 @@ function createStarfield(scene) {
   for (let i = 0; i < count; i++) {
     const theta = Math.random() * Math.PI * 2;
     const phi = Math.acos(2 * Math.random() - 1);
-    const r = 50 + Math.random() * 150;
+    const r = 30 + Math.random() * 120;
     positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
     positions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
     positions[i * 3 + 2] = r * Math.cos(phi);
 
-    colors[i * 3] = 0.8 + Math.random() * 0.2;
-    colors[i * 3 + 1] = 0.8 + Math.random() * 0.2;
-    colors[i * 3 + 2] = 0.9 + Math.random() * 0.1;
+    colors[i * 3] = 0.7 + Math.random() * 0.3;
+    colors[i * 3 + 1] = 0.7 + Math.random() * 0.3;
+    colors[i * 3 + 2] = 0.85 + Math.random() * 0.15;
   }
 
   const geo = new THREE.BufferGeometry();
@@ -265,10 +272,10 @@ function createStarfield(scene) {
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
   const mat = new THREE.PointsMaterial({
-    size: 0.15,
+    size: 0.2,
     vertexColors: true,
     transparent: true,
-    opacity: 0.8,
+    opacity: 0.9,
     sizeAttenuation: true,
   });
 
@@ -299,10 +306,10 @@ function createAmbientParticles(scene) {
   geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
 
   const mat = new THREE.PointsMaterial({
-    size: 0.08,
-    color: 0x6666ff,
+    size: 0.1,
+    color: 0x8888ff,
     transparent: true,
-    opacity: 0.4,
+    opacity: 0.5,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
   });
@@ -313,7 +320,7 @@ function createAmbientParticles(scene) {
 }
 
 // ---------------------------------------------------------------------------
-// 3D Title — "Daniel Stevens"
+// 3D Title
 // ---------------------------------------------------------------------------
 
 function createTitleText(font, scene) {
@@ -344,11 +351,27 @@ function createTitleText(font, scene) {
   mesh.position.set(0, 2, 0);
   mesh.scale.set(0.01, 0.01, 0.01);
   scene.add(mesh);
+
+  // Animate in
+  const start = performance.now();
+  function fadeIn(now) {
+    const t = (now - start) / 1000;
+    if (t < 2) {
+      mesh.scale.setScalar(easeOutBack(clamp(t / 1.5)));
+      mesh.material.opacity = clamp(t / 0.8);
+      requestAnimationFrame(fadeIn);
+    } else {
+      mesh.scale.setScalar(1);
+      mesh.material.opacity = 1;
+    }
+  }
+  requestAnimationFrame(fadeIn);
+
   return mesh;
 }
 
 // ---------------------------------------------------------------------------
-// <big> tag text (code aesthetic)
+// <big> tag text
 // ---------------------------------------------------------------------------
 
 function createBigTagText(font, scene) {
@@ -375,6 +398,18 @@ function createBigTagText(font, scene) {
     const mesh = new THREE.Mesh(geo, mat);
     mesh.position.set(0, y, 0);
     scene.add(mesh);
+
+    // Animate in
+    const start = performance.now();
+    function fadeIn(now) {
+      const t = (now - start) / 1000;
+      if (t < 1.5) {
+        mesh.material.opacity = clamp(t / 1.0) * 0.7;
+        requestAnimationFrame(fadeIn);
+      }
+    }
+    setTimeout(() => requestAnimationFrame(fadeIn), 500);
+
     return mesh;
   };
 
@@ -385,7 +420,7 @@ function createBigTagText(font, scene) {
 }
 
 // ---------------------------------------------------------------------------
-// Interactive links — GitHub & Good Reads
+// Interactive links
 // ---------------------------------------------------------------------------
 
 function createInteractiveLinks(font, scene, camera, canvas) {
@@ -396,7 +431,7 @@ function createInteractiveLinks(font, scene, camera, canvas) {
 
   const clickables = [];
 
-  links.forEach((link) => {
+  links.forEach((link, idx) => {
     const geo = new TextGeometry(link.text, {
       font,
       size: 0.7,
@@ -420,23 +455,38 @@ function createInteractiveLinks(font, scene, camera, canvas) {
     });
 
     const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.set(...link.pos);
-    mesh.userData = { url: link.url, isLink: true, baseEmissive: 0.5 };
+    mesh.position.set(link.pos[0], link.pos[1] - 2, link.pos[2]);
+    mesh.userData = { url: link.url, isLink: true, baseEmissive: 0.5, targetY: link.pos[1] };
     scene.add(mesh);
     clickables.push(mesh);
+
+    // Animate in
+    const start = performance.now();
+    function fadeIn(now) {
+      const t = (now - start) / 1000;
+      if (t < 1.5) {
+        const p = easeOutCubic(clamp(t / 1.0));
+        mesh.material.opacity = p;
+        mesh.position.y = mesh.userData.targetY + (1 - p) * -2;
+        requestAnimationFrame(fadeIn);
+      } else {
+        mesh.material.opacity = 1;
+        mesh.position.y = mesh.userData.targetY;
+      }
+    }
+    setTimeout(() => requestAnimationFrame(fadeIn), 800 + idx * 200);
   });
 
   // Raycasting
   const raycaster = new THREE.Raycaster();
   const mouse = new THREE.Vector2();
-  let mouseDown = new THREE.Vector2();
+  const mouseDown = new THREE.Vector2();
 
   canvas.addEventListener('pointerdown', (e) => {
     mouseDown.set(e.clientX, e.clientY);
   });
 
   canvas.addEventListener('pointerup', (e) => {
-    // Only count as click if mouse didn't move (vs orbit drag)
     const dx = e.clientX - mouseDown.x;
     const dy = e.clientY - mouseDown.y;
     if (Math.sqrt(dx * dx + dy * dy) > 5) return;
@@ -474,7 +524,7 @@ function createInteractiveLinks(font, scene, camera, canvas) {
 }
 
 // ---------------------------------------------------------------------------
-// Floating book cards (canvas textures on planes)
+// Floating book cards (canvas textures)
 // ---------------------------------------------------------------------------
 
 function createBookCardTexture(book) {
@@ -485,25 +535,19 @@ function createBookCardTexture(book) {
 
   // Background
   ctx.fillStyle = 'rgba(8, 8, 32, 0.92)';
-  ctx.beginPath();
-  ctx.roundRect(0, 0, 512, 200, 14);
-  ctx.fill();
+  ctx.fillRect(0, 0, 512, 200);
 
   // Border
   const catColor = CATEGORY_COLORS[book.category] || '#6666ff';
   ctx.strokeStyle = catColor;
   ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.roundRect(4, 4, 504, 192, 12);
-  ctx.stroke();
+  ctx.strokeRect(4, 4, 504, 192);
 
-  // Category pill
+  // Category label
   ctx.fillStyle = catColor;
   ctx.font = 'bold 13px Helvetica, Arial, sans-serif';
   const catW = ctx.measureText(book.category).width + 16;
-  ctx.beginPath();
-  ctx.roundRect(16, 14, catW, 22, 6);
-  ctx.fill();
+  ctx.fillRect(16, 14, catW, 22);
   ctx.fillStyle = '#000';
   ctx.fillText(book.category, 24, 30);
 
@@ -536,19 +580,15 @@ function createFloatingBooks(scene) {
   BOOKS.forEach((book, i) => {
     const texture = createBookCardTexture(book);
     const geo = new THREE.PlaneGeometry(5, 2);
-    const mat = new THREE.MeshStandardMaterial({
+    const mat = new THREE.MeshBasicMaterial({
       map: texture,
       transparent: true,
       opacity: 0,
       side: THREE.DoubleSide,
-      emissive: 0xffffff,
-      emissiveMap: texture,
-      emissiveIntensity: 0.15,
     });
 
     const card = new THREE.Mesh(geo, mat);
 
-    // Distribute in a ring
     const angle = (i / BOOKS.length) * Math.PI * 2;
     const radius = 22 + (i % 3) * 4;
     const yOffset = (Math.random() - 0.5) * 14;
@@ -559,7 +599,6 @@ function createFloatingBooks(scene) {
     );
     card.lookAt(0, card.position.y, 0);
 
-    // Store animation data
     card.userData.angle = angle;
     card.userData.radius = radius;
     card.userData.yBase = yOffset;
@@ -574,85 +613,10 @@ function createFloatingBooks(scene) {
 }
 
 // ---------------------------------------------------------------------------
-// Intro animation — base elements (camera, books) — runs immediately
+// Main animation loop (handles intro + continuous animation in one place)
 // ---------------------------------------------------------------------------
 
-function animateIntroBase(elements, camera) {
-  const start = performance.now();
-
-  function tick(now) {
-    const t = (now - start) / 1000;
-
-    // 0–2s: Camera flies in
-    if (t < 2) {
-      const p = easeOutCubic(t / 2);
-      camera.position.z = 50 - 35 * p;
-    } else {
-      camera.position.z = 15;
-    }
-
-    // 1–4s: Book cards fade in
-    if (t > 1) {
-      const p = clamp((t - 1) / 2.5);
-      elements.bookGroup.children.forEach((card) => {
-        card.material.opacity = p * 0.8;
-      });
-    }
-
-    if (t < 4.5) {
-      requestAnimationFrame(tick);
-    }
-  }
-
-  requestAnimationFrame(tick);
-}
-
-// ---------------------------------------------------------------------------
-// Intro animation — text elements — runs when font loads
-// ---------------------------------------------------------------------------
-
-function animateIntroText(elements) {
-  const { titleMesh, tagMeshes, linkMeshes } = elements;
-  const start = performance.now();
-
-  function tick(now) {
-    const t = (now - start) / 1000;
-
-    // 0–1.5s: Title scales up & fades in
-    if (t < 2) {
-      const p = easeOutBack(clamp(t / 1.5));
-      titleMesh.scale.setScalar(p);
-      titleMesh.material.opacity = clamp(t / 0.8);
-    }
-
-    // 0.5–1.5s: Big tags fade in
-    if (t > 0.5 && t < 2) {
-      const p = clamp((t - 0.5) / 1.0);
-      tagMeshes.forEach((m) => { m.material.opacity = p * 0.7; });
-    }
-
-    // 1–2s: Links appear from below
-    if (t > 1) {
-      const p = easeOutCubic(clamp((t - 1) / 1.0));
-      linkMeshes.forEach((m) => {
-        m.material.opacity = p;
-        m.position.y = -3.5 + (1 - p) * -2;
-      });
-    }
-
-    if (t < 3) {
-      requestAnimationFrame(tick);
-    }
-  }
-
-  requestAnimationFrame(tick);
-}
-
-// ---------------------------------------------------------------------------
-// Main animation loop
-// ---------------------------------------------------------------------------
-
-function startAnimationLoop(composer, controls, elements, camera) {
+function startAnimationLoop(renderFn, controls, elements, camera, state) {
   const clock = new THREE.Clock();
   const mousePos = { x: 0, y: 0 };
 
@@ -663,14 +627,36 @@ function startAnimationLoop(composer, controls, elements, camera) {
 
   function animate() {
     requestAnimationFrame(animate);
+
     const delta = clock.getDelta();
     const elapsed = clock.getElapsedTime();
 
-    // Stars rotate slowly
+    // ---- Intro sequence (first 5 seconds) ----
+    if (state.introActive) {
+      const t = (performance.now() - state.introStart) / 1000;
+
+      // Book cards fade in (1–4s)
+      if (t > 0.5) {
+        const p = clamp((t - 0.5) / 2.5);
+        elements.bookGroup.children.forEach((card) => {
+          card.material.opacity = p * 0.85;
+        });
+      }
+
+      // End intro, enable controls
+      if (t > 4) {
+        state.introActive = false;
+        controls.enabled = true;
+      }
+    }
+
+    // ---- Continuous animations ----
+
+    // Stars rotate
     elements.stars.rotation.y += delta * 0.008;
     elements.stars.rotation.x += delta * 0.003;
 
-    // Ambient particles drift + react to mouse
+    // Ambient particles drift + mouse
     const pos = elements.ambient.positions;
     const vel = elements.ambient.velocities;
     for (let i = 0; i < pos.length; i += 3) {
@@ -683,29 +669,33 @@ function startAnimationLoop(composer, controls, elements, camera) {
     }
     elements.ambient.mesh.geometry.attributes.position.needsUpdate = true;
 
-    // Title gentle float (only if font loaded)
+    // Title float
     if (elements.titleMesh) {
       elements.titleMesh.position.y = 2 + Math.sin(elapsed * 0.5) * 0.2;
       elements.titleMesh.rotation.y = Math.sin(elapsed * 0.3) * 0.04;
     }
 
-    // Tag text subtle breathing (only if font loaded)
+    // Tag breathing
     if (elements.tagMeshes.length > 0) {
       elements.tagMeshes.forEach((m, i) => {
-        const phase = i * Math.PI;
-        m.material.emissiveIntensity = 0.3 + Math.sin(elapsed * 0.8 + phase) * 0.15;
+        m.material.emissiveIntensity = 0.3 + Math.sin(elapsed * 0.8 + i * Math.PI) * 0.15;
       });
     }
 
-    // Book cards orbit and float
+    // Book cards orbit + float
     elements.bookGroup.rotation.y += delta * 0.015;
     elements.bookGroup.children.forEach((card) => {
       const d = card.userData;
       card.position.y = d.yBase + Math.sin(elapsed * d.floatSpeed) * d.floatAmp;
     });
 
-    controls.update();
-    composer.render();
+    // Controls (only update when enabled)
+    if (controls.enabled) {
+      controls.update();
+    }
+
+    // Render
+    renderFn();
   }
 
   animate();
@@ -722,8 +712,8 @@ function setupResize(camera, renderer, composer, bloomPass) {
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
     renderer.setSize(w, h);
-    composer.setSize(w, h);
-    bloomPass.resolution.set(w, h);
+    if (composer) composer.setSize(w, h);
+    if (bloomPass) bloomPass.resolution.set(w, h);
   });
 }
 
