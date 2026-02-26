@@ -52,6 +52,11 @@ describe('index.html structure', () => {
     assert.match(html, /id=["']flight-hud["']/);
     assert.match(html, /WASD/);
   });
+
+  it('has the speed HUD element', () => {
+    assert.match(html, /id=["']speed-hud["']/);
+    assert.match(html, /SPEED/);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -234,5 +239,40 @@ describe('scene.js flight system', () => {
 
   it('ship group assembles title, tags, and links', () => {
     assert.match(scene, /shipGroup\.add/);
+  });
+
+  it('thruster mesh is added to scene (not shipGroup) for world-space positions', () => {
+    assert.match(scene, /scene\.add\(thruster\.mesh\)/);
+  });
+
+  it('has speed lines (hyperspace streaks)', () => {
+    assert.match(scene, /createSpeedLines/);
+    assert.match(scene, /updateSpeedLines/);
+    assert.match(scene, /LineSegments/);
+  });
+
+  it('has boost flash effect', () => {
+    assert.match(scene, /createBoostFlash/);
+    assert.match(scene, /triggerBoostFlash/);
+    assert.match(scene, /updateBoostFlash/);
+  });
+
+  it('has rainbow trail', () => {
+    assert.match(scene, /createRainbowTrail/);
+    assert.match(scene, /updateRainbowTrail/);
+  });
+
+  it('has FOV warp effect', () => {
+    assert.match(scene, /targetFov/);
+    assert.match(scene, /camera\.fov/);
+    assert.match(scene, /updateProjectionMatrix/);
+  });
+
+  it('has screen shake on boost', () => {
+    assert.match(scene, /shake/);
+  });
+
+  it('has speed HUD update', () => {
+    assert.match(scene, /speed-hud/);
   });
 });

@@ -121,7 +121,7 @@ function beginTransformation() {
     document.body.appendChild(canvas);
 
     Array.from(document.body.children).forEach((el) => {
-      if (el.id !== 'threejs-canvas' && el.id !== 'flight-hud' && el.tagName !== 'SCRIPT' && el.tagName !== 'STYLE') {
+      if (el.id !== 'threejs-canvas' && el.id !== 'flight-hud' && el.id !== 'speed-hud' && el.tagName !== 'SCRIPT' && el.tagName !== 'STYLE') {
         el.style.display = 'none';
       }
     });
@@ -284,6 +284,7 @@ function initThreeScene(canvas) {
 
   const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
   camera.position.set(0, 0, 15);
+  scene.add(camera);
 
   // Lighting
   const lights = {
@@ -315,13 +316,19 @@ function initThreeScene(canvas) {
   engineGlowR.position.set(8, 0, 1);
   shipGroup.add(engineGlowR);
 
-  // Thruster particles
+  // Thruster particles (world space — NOT parented to shipGroup)
   const thruster = createThrusterParticles();
-  shipGroup.add(thruster.mesh);
+  scene.add(thruster.mesh);
+
+  // Over-the-top effects
+  const speedLines = createSpeedLines(scene);
+  const boostFlash = createBoostFlash(camera);
+  const rainbowTrail = createRainbowTrail(scene);
 
   const elements = {
     stars, ambient, titleMesh: null, tagMeshes: [], linkMeshes: [],
     bookGroup, thruster, engineGlowL, engineGlowR,
+    speedLines, boostFlash, rainbowTrail,
   };
 
   // Post-processing
@@ -351,7 +358,7 @@ function initThreeScene(canvas) {
   const physics = createShipPhysics();
 
   // Animation loop
-  const state = { introActive: true, introStart: performance.now(), hudShown: false };
+  const state = { introActive: true, introStart: performance.now(), hudShown: false, prevBoost: false };
   startAnimationLoop(renderFn, elements, camera, shipGroup, physics, input, state, lights);
   setupResize(camera, renderer, composer, bloomPass);
 
@@ -712,6 +719,137 @@ function updateThrusterParticles(thruster, shipGroup, physics, input, delta) {
 }
 
 // ---------------------------------------------------------------------------
+// Speed lines (hyperspace streaks)
+// ---------------------------------------------------------------------------
+
+function createSpeedLines(scene) {
+  const count = isMobile ? 40 : 100;
+  const positions = new Float32Array(count * 6);
+  const radials = [];
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const r = 5 + Math.random() * 25;
+    radials.push({
+      x: Math.cos(angle) * r,
+      y: Math.sin(angle) * r,
+      phase: Math.random() * 60,
+    });
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  const mat = new THREE.LineBasicMaterial({
+    color: 0xaaccff,
+    transparent: true,
+    opacity: 0,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  const mesh = new THREE.LineSegments(geo, mat);
+  scene.add(mesh);
+  return { mesh, positions, count, radials };
+}
+
+function updateSpeedLines(lines, camera, shipGroup, physics, elapsed) {
+  const speedRatio = physics.speed / physics.maxSpeed;
+  if (speedRatio < 0.05) { lines.mesh.material.opacity = 0; return; }
+
+  const boosting = physics.speed > physics.maxSpeed * 0.7;
+  lines.mesh.material.opacity = clamp01(speedRatio * (boosting ? 0.6 : 0.35));
+
+  const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(shipGroup.quaternion);
+  const rt = new THREE.Vector3(1, 0, 0).applyQuaternion(shipGroup.quaternion);
+  const up = new THREE.Vector3(0, 1, 0).applyQuaternion(shipGroup.quaternion);
+  const lineLen = 1 + speedRatio * 5 + (boosting ? 6 : 0);
+  const pos = lines.positions;
+
+  for (let i = 0; i < lines.count; i++) {
+    const r = lines.radials[i];
+    const z = ((elapsed * physics.speed * 0.3 + r.phase) % 60) - 30;
+    const base = camera.position.clone()
+      .addScaledVector(rt, r.x).addScaledVector(up, r.y).addScaledVector(fwd, z);
+    const idx = i * 6;
+    pos[idx] = base.x; pos[idx + 1] = base.y; pos[idx + 2] = base.z;
+    pos[idx + 3] = base.x + fwd.x * lineLen;
+    pos[idx + 4] = base.y + fwd.y * lineLen;
+    pos[idx + 5] = base.z + fwd.z * lineLen;
+  }
+  lines.mesh.geometry.attributes.position.needsUpdate = true;
+}
+
+// ---------------------------------------------------------------------------
+// Boost flash
+// ---------------------------------------------------------------------------
+
+function createBoostFlash(camera) {
+  const geo = new THREE.PlaneGeometry(2, 2);
+  const mat = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0,
+    depthTest: false,
+    depthWrite: false,
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.renderOrder = 999;
+  camera.add(mesh);
+  mesh.position.set(0, 0, -0.1);
+  return { mesh, active: false, time: 0 };
+}
+
+function updateBoostFlash(flash, delta) {
+  if (!flash.active) return;
+  flash.time += delta;
+  flash.mesh.material.opacity = Math.max(0, 0.6 * (1 - flash.time / 0.3));
+  if (flash.time > 0.3) { flash.active = false; flash.mesh.material.opacity = 0; }
+}
+
+function triggerBoostFlash(flash) { flash.active = true; flash.time = 0; }
+
+// ---------------------------------------------------------------------------
+// Rainbow trail
+// ---------------------------------------------------------------------------
+
+function createRainbowTrail(scene) {
+  const count = isMobile ? 200 : 500;
+  const positions = new Float32Array(count * 3);
+  const colors = new Float32Array(count * 3);
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+  const mat = new THREE.PointsMaterial({
+    size: 0.3,
+    vertexColors: true,
+    transparent: true,
+    opacity: 0.4,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    sizeAttenuation: true,
+  });
+  const mesh = new THREE.Points(geo, mat);
+  scene.add(mesh);
+  return { mesh, positions, colors, count, head: 0 };
+}
+
+function updateRainbowTrail(trail, shipGroup, elapsed) {
+  const i = trail.head;
+  trail.positions[i * 3] = shipGroup.position.x;
+  trail.positions[i * 3 + 1] = shipGroup.position.y;
+  trail.positions[i * 3 + 2] = shipGroup.position.z;
+
+  const color = new THREE.Color().setHSL((elapsed * 0.5) % 1, 1.0, 0.5);
+  trail.colors[i * 3] = color.r;
+  trail.colors[i * 3 + 1] = color.g;
+  trail.colors[i * 3 + 2] = color.b;
+
+  trail.head = (trail.head + 1) % trail.count;
+  trail.mesh.geometry.attributes.position.needsUpdate = true;
+  trail.mesh.geometry.attributes.color.needsUpdate = true;
+}
+
+// ---------------------------------------------------------------------------
 // Floating book cards (canvas textures)
 // ---------------------------------------------------------------------------
 
@@ -857,10 +995,13 @@ function wrapBooks(bookGroup, shipPos) {
 
 function showFlightHUD() {
   const hud = document.getElementById('flight-hud');
-  if (!hud) return;
-  hud.style.display = 'block';
-  setTimeout(() => { hud.style.opacity = '0'; }, 8000);
-  setTimeout(() => { hud.style.display = 'none'; }, 10000);
+  if (hud) {
+    hud.style.display = 'block';
+    setTimeout(() => { hud.style.opacity = '0'; }, 8000);
+    setTimeout(() => { hud.style.display = 'none'; }, 10000);
+  }
+  const speedHud = document.getElementById('speed-hud');
+  if (speedHud) speedHud.style.display = 'block';
 }
 
 // ---------------------------------------------------------------------------
@@ -918,7 +1059,20 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
       updateShipPhysics(shipGroup, physics, input, delta);
       updateChaseCamera(camera, shipGroup, physics, input, delta);
 
-      // Thruster particles (in world space, not parented to ship movement)
+      // Screen shake on boost
+      if (input.boost) {
+        const shake = 0.05 * (physics.speed / physics.maxSpeed);
+        camera.position.x += (Math.random() - 0.5) * shake;
+        camera.position.y += (Math.random() - 0.5) * shake;
+        camera.position.z += (Math.random() - 0.5) * shake;
+      }
+
+      // FOV warp effect
+      const targetFov = 60 + (physics.speed / physics.maxSpeed) * 15 + (input.boost ? 10 : 0);
+      camera.fov += (targetFov - camera.fov) * 0.05;
+      camera.updateProjectionMatrix();
+
+      // Thruster particles (world space)
       updateThrusterParticles(elements.thruster, shipGroup, physics, input, delta);
 
       // Engine glow intensity
@@ -945,6 +1099,21 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
         elements.titleMesh.material.color.setHSL(hue, 0.9, 0.35);
         elements.titleMesh.material.emissive.setHSL(hue, 0.9, 0.12);
       }
+
+      // Speed lines (hyperspace streaks)
+      updateSpeedLines(elements.speedLines, camera, shipGroup, physics, elapsed);
+
+      // Boost flash (triggers on boost start)
+      if (input.boost && !state.prevBoost) triggerBoostFlash(elements.boostFlash);
+      state.prevBoost = input.boost;
+      updateBoostFlash(elements.boostFlash, delta);
+
+      // Rainbow trail behind ship
+      updateRainbowTrail(elements.rainbowTrail, shipGroup, elapsed);
+
+      // Speed HUD
+      const speedHud = document.getElementById('speed-hud');
+      if (speedHud) speedHud.textContent = 'SPEED: ' + Math.round(physics.speed);
     }
 
     // ---- Always-on animations ----
