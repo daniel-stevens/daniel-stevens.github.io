@@ -64,7 +64,9 @@ let preloadedFont = null;
 const fontLoader = new FontLoader();
 fontLoader.load(
   'https://cdn.jsdelivr.net/npm/three@0.172.0/examples/fonts/helvetiker_bold.typeface.json',
-  (font) => { preloadedFont = font; }
+  (font) => { preloadedFont = font; },
+  undefined,
+  (err) => { console.error('Font load failed:', err); }
 );
 
 // ---------------------------------------------------------------------------
@@ -188,38 +190,53 @@ function initThreeScene(canvas) {
   rimLight.position.set(0, 5, -15);
   scene.add(rimLight);
 
-  // ---- Build scene when font is ready ----
+  // ---- Build non-font elements immediately ----
+  const stars = createStarfield(scene);
+  const ambient = createAmbientParticles(scene);
+  const bookGroup = createFloatingBooks(scene);
+
+  // Start with partial elements so the scene renders right away
+  const elements = {
+    stars,
+    ambient,
+    titleMesh: null,
+    tagMeshes: [],
+    linkMeshes: [],
+    bookGroup,
+  };
+
+  // Start animation loop and resize handler immediately
+  startAnimationLoop(composer, controls, elements, camera);
+  setupResize(camera, renderer, composer, bloomPass);
+
+  // Fly camera in and fade in book cards immediately
+  animateIntroBase(elements, camera);
+
+  // ---- Add text elements when font is ready ----
   function onFontReady(font) {
-    const elements = buildScene(font, scene, camera, canvas);
-    animateIntro(elements, camera);
-    startAnimationLoop(composer, controls, elements, camera);
-    setupResize(camera, renderer, composer, bloomPass);
+    const titleMesh = createTitleText(font, scene);
+    const tagMeshes = createBigTagText(font, scene);
+    const linkMeshes = createInteractiveLinks(font, scene, camera, canvas);
+
+    elements.titleMesh = titleMesh;
+    elements.tagMeshes = tagMeshes;
+    elements.linkMeshes = linkMeshes;
+
+    animateIntroText(elements, camera);
   }
 
   if (preloadedFont) {
     onFontReady(preloadedFont);
   } else {
-    // Fallback: wait for font
     const check = setInterval(() => {
       if (preloadedFont) { clearInterval(check); onFontReady(preloadedFont); }
     }, 100);
+    // Timeout: give up on font after 10s
+    setTimeout(() => { clearInterval(check); }, 10000);
   }
 }
 
-// ---------------------------------------------------------------------------
-// Build all scene elements
-// ---------------------------------------------------------------------------
-
-function buildScene(font, scene, camera, canvas) {
-  const stars = createStarfield(scene);
-  const ambient = createAmbientParticles(scene);
-  const titleMesh = createTitleText(font, scene);
-  const tagMeshes = createBigTagText(font, scene);
-  const linkMeshes = createInteractiveLinks(font, scene, camera, canvas);
-  const bookGroup = createFloatingBooks(scene);
-
-  return { stars, ambient, titleMesh, tagMeshes, linkMeshes, bookGroup };
-}
+// (Scene elements are now built directly inside initThreeScene)
 
 // ---------------------------------------------------------------------------
 // Starfield
@@ -557,11 +574,10 @@ function createFloatingBooks(scene) {
 }
 
 // ---------------------------------------------------------------------------
-// Intro animation choreography
+// Intro animation — base elements (camera, books) — runs immediately
 // ---------------------------------------------------------------------------
 
-function animateIntro(elements, camera) {
-  const { titleMesh, tagMeshes, linkMeshes, bookGroup } = elements;
+function animateIntroBase(elements, camera) {
   const start = performance.now();
 
   function tick(now) {
@@ -575,37 +591,56 @@ function animateIntro(elements, camera) {
       camera.position.z = 15;
     }
 
-    // 0.5–2s: Title scales up & fades in
-    if (t > 0.5 && t < 2.5) {
-      const p = easeOutBack(clamp((t - 0.5) / 1.5));
-      titleMesh.scale.setScalar(p);
-      titleMesh.material.opacity = clamp((t - 0.5) / 0.8);
+    // 1–4s: Book cards fade in
+    if (t > 1) {
+      const p = clamp((t - 1) / 2.5);
+      elements.bookGroup.children.forEach((card) => {
+        card.material.opacity = p * 0.8;
+      });
     }
 
-    // 1–2.5s: Big tags fade in
-    if (t > 1 && t < 2.5) {
-      const p = clamp((t - 1) / 1.0);
+    if (t < 4.5) {
+      requestAnimationFrame(tick);
+    }
+  }
+
+  requestAnimationFrame(tick);
+}
+
+// ---------------------------------------------------------------------------
+// Intro animation — text elements — runs when font loads
+// ---------------------------------------------------------------------------
+
+function animateIntroText(elements) {
+  const { titleMesh, tagMeshes, linkMeshes } = elements;
+  const start = performance.now();
+
+  function tick(now) {
+    const t = (now - start) / 1000;
+
+    // 0–1.5s: Title scales up & fades in
+    if (t < 2) {
+      const p = easeOutBack(clamp(t / 1.5));
+      titleMesh.scale.setScalar(p);
+      titleMesh.material.opacity = clamp(t / 0.8);
+    }
+
+    // 0.5–1.5s: Big tags fade in
+    if (t > 0.5 && t < 2) {
+      const p = clamp((t - 0.5) / 1.0);
       tagMeshes.forEach((m) => { m.material.opacity = p * 0.7; });
     }
 
-    // 2–3.5s: Links appear from below
-    if (t > 2) {
-      const p = easeOutCubic(clamp((t - 2) / 1.0));
+    // 1–2s: Links appear from below
+    if (t > 1) {
+      const p = easeOutCubic(clamp((t - 1) / 1.0));
       linkMeshes.forEach((m) => {
         m.material.opacity = p;
         m.position.y = -3.5 + (1 - p) * -2;
       });
     }
 
-    // 2.5–5s: Book cards fade in
-    if (t > 2.5) {
-      const p = clamp((t - 2.5) / 2.0);
-      bookGroup.children.forEach((card) => {
-        card.material.opacity = p * 0.8;
-      });
-    }
-
-    if (t < 5.5) {
+    if (t < 3) {
       requestAnimationFrame(tick);
     }
   }
@@ -648,15 +683,19 @@ function startAnimationLoop(composer, controls, elements, camera) {
     }
     elements.ambient.mesh.geometry.attributes.position.needsUpdate = true;
 
-    // Title gentle float
-    elements.titleMesh.position.y = 2 + Math.sin(elapsed * 0.5) * 0.2;
-    elements.titleMesh.rotation.y = Math.sin(elapsed * 0.3) * 0.04;
+    // Title gentle float (only if font loaded)
+    if (elements.titleMesh) {
+      elements.titleMesh.position.y = 2 + Math.sin(elapsed * 0.5) * 0.2;
+      elements.titleMesh.rotation.y = Math.sin(elapsed * 0.3) * 0.04;
+    }
 
-    // Tag text subtle breathing
-    elements.tagMeshes.forEach((m, i) => {
-      const phase = i * Math.PI;
-      m.material.emissiveIntensity = 0.3 + Math.sin(elapsed * 0.8 + phase) * 0.15;
-    });
+    // Tag text subtle breathing (only if font loaded)
+    if (elements.tagMeshes.length > 0) {
+      elements.tagMeshes.forEach((m, i) => {
+        const phase = i * Math.PI;
+        m.material.emissiveIntensity = 0.3 + Math.sin(elapsed * 0.8 + phase) * 0.15;
+      });
+    }
 
     // Book cards orbit and float
     elements.bookGroup.rotation.y += delta * 0.015;
