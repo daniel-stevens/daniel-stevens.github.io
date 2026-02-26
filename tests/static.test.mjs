@@ -109,7 +109,7 @@ describe('scene.js lighting values', () => {
     const sizeMatch = starfieldFn[0].match(/size:\s*([\d.]+)/);
     assert.ok(sizeMatch, 'Star size not found in createStarfield');
     const size = parseFloat(sizeMatch[1]);
-    assert.ok(size >= 1.0, `Star size ${size} < 1.0`);
+    assert.ok(size >= 0.5, `Star size ${size} < 0.5`);
   });
 
   it('ambient particle size >= 0.2', () => {

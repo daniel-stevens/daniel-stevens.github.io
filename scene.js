@@ -331,7 +331,7 @@ function initThreeScene(canvas) {
     composer.addPass(new RenderPass(scene, camera));
     bloomPass = new UnrealBloomPass(
       new THREE.Vector2(window.innerWidth, window.innerHeight),
-      0.3, 0.2, 0.6
+      0.15, 0.1, 0.85
     );
     composer.addPass(bloomPass);
     composer.addPass(new OutputPass());
@@ -390,14 +390,14 @@ function createStarfield(scene) {
   for (let i = 0; i < count; i++) {
     const theta = Math.random() * Math.PI * 2;
     const phi = Math.acos(2 * Math.random() - 1);
-    const r = 30 + Math.random() * 120;
+    const r = 60 + Math.random() * 140;
     positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
     positions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
     positions[i * 3 + 2] = r * Math.cos(phi);
 
-    colors[i * 3] = 0.7 + Math.random() * 0.3;
-    colors[i * 3 + 1] = 0.7 + Math.random() * 0.3;
-    colors[i * 3 + 2] = 0.85 + Math.random() * 0.15;
+    colors[i * 3] = 0.4 + Math.random() * 0.4;
+    colors[i * 3 + 1] = 0.4 + Math.random() * 0.4;
+    colors[i * 3 + 2] = 0.5 + Math.random() * 0.3;
   }
 
   const geo = new THREE.BufferGeometry();
@@ -405,10 +405,10 @@ function createStarfield(scene) {
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
   const mat = new THREE.PointsMaterial({
-    size: 1.5,
+    size: 1.0,
     vertexColors: true,
     transparent: true,
-    opacity: 0.4,
+    opacity: 0.3,
     sizeAttenuation: true,
   });
 
@@ -802,7 +802,7 @@ function wrapStarfield(stars, shipPos) {
     if (distSq > wrapRadius * wrapRadius) {
       const theta = Math.random() * Math.PI * 2;
       const phi = Math.acos(2 * Math.random() - 1);
-      const r = 80 + Math.random() * 70;
+      const r = 100 + Math.random() * 100;
       positions[i] = shipPos.x + r * Math.sin(phi) * Math.cos(theta);
       positions[i + 1] = shipPos.y + r * Math.sin(phi) * Math.sin(theta);
       positions[i + 2] = shipPos.z + r * Math.cos(phi);
