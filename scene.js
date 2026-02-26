@@ -307,10 +307,13 @@ function initThreeScene(canvas) {
   shipGroup.position.set(0, 2, 0);
   scene.add(shipGroup);
 
-  // Engine glow (behind ship)
-  const engineGlow = new THREE.PointLight(0xff6633, 0, 30);
-  engineGlow.position.set(0, -0.3, 2);
-  shipGroup.add(engineGlow);
+  // Engine glows (left and right sides of title — at the D and s)
+  const engineGlowL = new THREE.PointLight(0xff6633, 0, 30);
+  engineGlowL.position.set(-8, 0, 1);
+  shipGroup.add(engineGlowL);
+  const engineGlowR = new THREE.PointLight(0xff6633, 0, 30);
+  engineGlowR.position.set(8, 0, 1);
+  shipGroup.add(engineGlowR);
 
   // Thruster particles
   const thruster = createThrusterParticles();
@@ -318,7 +321,7 @@ function initThreeScene(canvas) {
 
   const elements = {
     stars, ambient, titleMesh: null, tagMeshes: [], linkMeshes: [],
-    bookGroup, thruster, engineGlow,
+    bookGroup, thruster, engineGlowL, engineGlowR,
   };
 
   // Post-processing
@@ -541,7 +544,7 @@ function createBigTagText(font) {
 
   return [
     makeTag('<big><big><big><big><big>', 3.5),
-    makeTag('</big></big></big></big></big>', -3.2),
+    makeTag('</big></big></big></big></big>', -5.0),
   ];
 }
 
@@ -673,22 +676,24 @@ function updateThrusterParticles(thruster, shipGroup, physics, input, delta) {
       pos[i * 3 + 1] += vel[i * 3 + 1] * delta;
       pos[i * 3 + 2] += vel[i * 3 + 2] * delta;
     } else if (thrusting && Math.random() > 0.5) {
-      // Spawn at ship rear in world space
+      // Spawn from left (D) or right (s) side of title
+      const side = Math.random() > 0.5 ? -8 : 8;
       const localSpawn = new THREE.Vector3(
-        (Math.random() - 0.5) * 0.8,
-        (Math.random() - 0.5) * 0.4,
-        1.5
+        side + (Math.random() - 0.5) * 1.0,
+        (Math.random() - 0.5) * 0.6,
+        0.5 + Math.random() * 0.5
       );
       const worldSpawn = localSpawn.applyQuaternion(shipGroup.quaternion).add(shipGroup.position);
       pos[i * 3] = worldSpawn.x;
       pos[i * 3 + 1] = worldSpawn.y;
       pos[i * 3 + 2] = worldSpawn.z;
 
-      // Backward velocity in world space
+      // Outward velocity from the side (left goes left, right goes right)
+      const outDir = side < 0 ? -1 : 1;
       const localVel = new THREE.Vector3(
-        (Math.random() - 0.5) * 3,
-        (Math.random() - 0.5) * 3,
-        5 + Math.random() * 8
+        outDir * (4 + Math.random() * 6),
+        (Math.random() - 0.5) * 2,
+        (Math.random() - 0.5) * 2
       );
       const worldVel = localVel.applyQuaternion(shipGroup.quaternion);
       vel[i * 3] = worldVel.x;
@@ -919,7 +924,8 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
       // Engine glow intensity
       const thrustActive = input.forward || input.boost || physics.speed > physics.baseSpeed * 1.5;
       const targetGlow = input.boost ? 300 : (thrustActive ? 150 : 0);
-      elements.engineGlow.intensity += (targetGlow - elements.engineGlow.intensity) * 0.1;
+      elements.engineGlowL.intensity += (targetGlow - elements.engineGlowL.intensity) * 0.1;
+      elements.engineGlowR.intensity += (targetGlow - elements.engineGlowR.intensity) * 0.1;
 
       // Lights follow ship
       const sp = shipGroup.position;
