@@ -157,18 +157,18 @@ function initThreeScene(canvas) {
   const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 500);
   camera.position.set(0, 0, 15);
 
-  // ---- Lighting ----
-  scene.add(new THREE.AmbientLight(0x222244, 0.6));
+  // ---- Lighting (physically correct — r150+ uses inverse-square falloff) ----
+  scene.add(new THREE.AmbientLight(0x334466, 2.0));
 
-  const keyLight = new THREE.PointLight(0x4488ff, 3, 100);
+  const keyLight = new THREE.PointLight(0x4488ff, 800, 100);
   keyLight.position.set(10, 10, 10);
   scene.add(keyLight);
 
-  const fillLight = new THREE.PointLight(0xff6644, 1.5, 80);
+  const fillLight = new THREE.PointLight(0xff6644, 400, 80);
   fillLight.position.set(-10, -5, 5);
   scene.add(fillLight);
 
-  const rimLight = new THREE.PointLight(0x44ffaa, 2, 60);
+  const rimLight = new THREE.PointLight(0x44ffaa, 500, 60);
   rimLight.position.set(0, 5, -15);
   scene.add(rimLight);
 
@@ -196,7 +196,7 @@ function initThreeScene(canvas) {
     composer.addPass(new RenderPass(scene, camera));
     bloomPass = new UnrealBloomPass(
       new THREE.Vector2(window.innerWidth, window.innerHeight),
-      1.4, 0.5, 0.15
+      1.4, 0.5, 0.05
     );
     composer.addPass(bloomPass);
     composer.addPass(new OutputPass());
@@ -272,7 +272,7 @@ function createStarfield(scene) {
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
   const mat = new THREE.PointsMaterial({
-    size: 0.2,
+    size: 1.5,
     vertexColors: true,
     transparent: true,
     opacity: 0.9,
@@ -306,7 +306,7 @@ function createAmbientParticles(scene) {
   geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
 
   const mat = new THREE.PointsMaterial({
-    size: 0.1,
+    size: 0.4,
     color: 0x8888ff,
     transparent: true,
     opacity: 0.5,
