@@ -121,7 +121,7 @@ function beginTransformation() {
     document.body.appendChild(canvas);
 
     Array.from(document.body.children).forEach((el) => {
-      if (el.id !== 'threejs-canvas' && el.id !== 'flight-hud' && el.id !== 'speed-hud' && el.id !== 'minimap' && el.tagName !== 'SCRIPT' && el.tagName !== 'STYLE') {
+      if (el.id !== 'threejs-canvas' && el.id !== 'flight-hud' && el.id !== 'speed-hud' && el.id !== 'minimap' && el.id !== 'action-text' && el.tagName !== 'SCRIPT' && el.tagName !== 'STYLE') {
         el.style.display = 'none';
       }
     });
@@ -145,6 +145,8 @@ function createInputState(canvas) {
   const input = {
     forward: false, backward: false, left: false, right: false,
     boost: false, mouseX: 0, mouseY: 0, active: false,
+    lastLeftTap: 0, lastRightTap: 0, leftTapped: false, rightTapped: false,
+    flipRequested: false,
   };
 
   window.addEventListener('keydown', (e) => {
@@ -152,9 +154,10 @@ function createInputState(canvas) {
     switch (e.code) {
       case 'KeyW': case 'ArrowUp':    input.forward = true; break;
       case 'KeyS': case 'ArrowDown':  input.backward = true; break;
-      case 'KeyA': case 'ArrowLeft':  input.left = true; break;
-      case 'KeyD': case 'ArrowRight': input.right = true; break;
+      case 'KeyA': case 'ArrowLeft':  input.left = true; input.leftTapped = true; break;
+      case 'KeyD': case 'ArrowRight': input.right = true; input.rightTapped = true; break;
       case 'Space': input.boost = true; e.preventDefault(); break;
+      case 'KeyQ': input.flipRequested = true; break;
     }
   });
 
@@ -325,11 +328,12 @@ function initThreeScene(canvas) {
   const boostFlash = createBoostFlash(camera);
   const rainbowTrail = createRainbowTrail(scene);
   const minimapCtx = initMinimap();
+  const flipBurst = createFlipBurst(scene);
 
   const elements = {
     stars, ambient, titleMesh: null, tagMeshes: [], linkMeshes: [],
     bookGroup, thruster, engineGlowL, engineGlowR,
-    speedLines, boostFlash, rainbowTrail, minimapCtx,
+    speedLines, boostFlash, rainbowTrail, minimapCtx, flipBurst,
   };
 
   // Post-processing
@@ -359,7 +363,11 @@ function initThreeScene(canvas) {
   const physics = createShipPhysics();
 
   // Animation loop
-  const state = { introActive: true, introStart: performance.now(), hudShown: false, prevBoost: false, minimapFrame: 0 };
+  const state = {
+    introActive: true, introStart: performance.now(), hudShown: false, prevBoost: false, minimapFrame: 0,
+    barrelRoll: { active: false, direction: 1, startTime: 0, duration: 0.6, comboCount: 0, lastRollEnd: 0 },
+    flip: { active: false, startTime: 0, startRotY: 0, duration: 0.8, cameraOffset: 0 },
+  };
   startAnimationLoop(renderFn, elements, camera, shipGroup, physics, input, state, lights);
   setupResize(camera, renderer, composer, bloomPass);
 
@@ -992,6 +1000,158 @@ function wrapBooks(bookGroup, shipPos) {
 }
 
 // ---------------------------------------------------------------------------
+// Barrel roll
+// ---------------------------------------------------------------------------
+
+function triggerBarrelRoll(state, direction, elapsed, physics, shipGroup) {
+  state.barrelRoll.active = true;
+  state.barrelRoll.direction = direction;
+  state.barrelRoll.startTime = elapsed;
+  if (elapsed - state.barrelRoll.lastRollEnd < 1.5) {
+    state.barrelRoll.comboCount++;
+  } else {
+    state.barrelRoll.comboCount = 1;
+  }
+  // Speed boost on roll
+  const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(shipGroup.quaternion);
+  physics.velocity.addScaledVector(fwd, Math.max(physics.speed * 0.2, 2));
+}
+
+function updateBarrelRoll(state, shipGroup, elapsed) {
+  const roll = state.barrelRoll;
+  if (!roll.active) return false;
+
+  const t = (elapsed - roll.startTime) / roll.duration;
+  if (t >= 1) {
+    roll.active = false;
+    roll.lastRollEnd = elapsed;
+    shipGroup.rotation.z = 0;
+    if (roll.comboCount > 1) showActionText(getComboText(roll.comboCount));
+    return false;
+  }
+
+  const eased = easeInOutCubic(t);
+  shipGroup.rotation.z = roll.direction * Math.PI * 2 * eased;
+  return true;
+}
+
+function getComboText(count) {
+  if (count === 2) return 'COMBO x2!';
+  if (count === 3) return 'TRIPLE ROLL!';
+  if (count === 4) return 'QUAD SPIN!';
+  return 'ABSOLUTELY MENTAL!';
+}
+
+// ---------------------------------------------------------------------------
+// Flip / reverse (Q key)
+// ---------------------------------------------------------------------------
+
+function triggerFlip(state, shipGroup, elapsed) {
+  state.flip.active = true;
+  state.flip.startTime = elapsed;
+  state.flip.startRotY = shipGroup.rotation.y;
+}
+
+function updateFlip(state, shipGroup, camera, elements, elapsed) {
+  const f = state.flip;
+  if (!f.active) { f.cameraOffset = f.cameraOffset * 0.9; return; }
+
+  const t = (elapsed - f.startTime) / f.duration;
+  if (t >= 1) {
+    f.active = false;
+    shipGroup.rotation.y = f.startRotY + Math.PI;
+    triggerFlipBurst(elements.flipBurst, shipGroup);
+    showActionText('FLIP!');
+    f.cameraOffset = 0;
+    return;
+  }
+
+  const eased = easeInOutCubic(t);
+  shipGroup.rotation.y = f.startRotY + Math.PI * eased;
+
+  // Camera pull-back (peaks at midpoint)
+  f.cameraOffset = 8 * Math.sin(t * Math.PI);
+
+  // Engine glow spike during flip
+  elements.engineGlowL.intensity = 500;
+  elements.engineGlowR.intensity = 500;
+}
+
+// ---------------------------------------------------------------------------
+// Flip burst particles
+// ---------------------------------------------------------------------------
+
+function createFlipBurst(scene) {
+  const count = 50;
+  const positions = new Float32Array(count * 3);
+  const velocities = new Float32Array(count * 3);
+  const lifetimes = new Float32Array(count);
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+  const mat = new THREE.PointsMaterial({
+    size: 0.6,
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    sizeAttenuation: true,
+  });
+
+  const mesh = new THREE.Points(geo, mat);
+  scene.add(mesh);
+  return { mesh, positions, velocities, lifetimes, count };
+}
+
+function triggerFlipBurst(burst, shipGroup) {
+  for (let i = 0; i < burst.count; i++) {
+    burst.positions[i * 3] = shipGroup.position.x;
+    burst.positions[i * 3 + 1] = shipGroup.position.y;
+    burst.positions[i * 3 + 2] = shipGroup.position.z;
+
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(2 * Math.random() - 1);
+    const speed = 5 + Math.random() * 15;
+    burst.velocities[i * 3] = speed * Math.sin(phi) * Math.cos(theta);
+    burst.velocities[i * 3 + 1] = speed * Math.sin(phi) * Math.sin(theta);
+    burst.velocities[i * 3 + 2] = speed * Math.cos(phi);
+
+    burst.lifetimes[i] = 0.3 + Math.random() * 0.4;
+  }
+  burst.mesh.material.opacity = 0.7;
+}
+
+function updateFlipBurst(burst, delta) {
+  let anyAlive = false;
+  for (let i = 0; i < burst.count; i++) {
+    if (burst.lifetimes[i] > 0) {
+      anyAlive = true;
+      burst.lifetimes[i] -= delta;
+      burst.positions[i * 3] += burst.velocities[i * 3] * delta;
+      burst.positions[i * 3 + 1] += burst.velocities[i * 3 + 1] * delta;
+      burst.positions[i * 3 + 2] += burst.velocities[i * 3 + 2] * delta;
+    }
+  }
+  burst.mesh.geometry.attributes.position.needsUpdate = true;
+  if (!anyAlive) burst.mesh.material.opacity = 0;
+}
+
+// ---------------------------------------------------------------------------
+// Action text overlay
+// ---------------------------------------------------------------------------
+
+function showActionText(text) {
+  const el = document.getElementById('action-text');
+  if (!el) return;
+  el.textContent = text;
+  el.style.opacity = '1';
+  clearTimeout(el._hideTimer);
+  el._hideTimer = setTimeout(() => { el.style.opacity = '0'; }, 800);
+}
+
+// ---------------------------------------------------------------------------
 // Minimap (tactical radar)
 // ---------------------------------------------------------------------------
 
@@ -1208,8 +1368,53 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
 
     // ---- Flight mode ----
     if (input.active) {
+      // Barrel roll detection (double-tap A/D)
+      if (input.leftTapped) {
+        input.leftTapped = false;
+        const now = performance.now();
+        if (now - input.lastLeftTap < 250 && !state.barrelRoll.active && !state.flip.active) {
+          triggerBarrelRoll(state, 1, elapsed, physics, shipGroup);
+        }
+        input.lastLeftTap = now;
+      }
+      if (input.rightTapped) {
+        input.rightTapped = false;
+        const now = performance.now();
+        if (now - input.lastRightTap < 250 && !state.barrelRoll.active && !state.flip.active) {
+          triggerBarrelRoll(state, -1, elapsed, physics, shipGroup);
+        }
+        input.lastRightTap = now;
+      }
+
+      // Flip detection (Q key)
+      if (input.flipRequested) {
+        input.flipRequested = false;
+        if (!state.flip.active && !state.barrelRoll.active) {
+          triggerFlip(state, shipGroup, elapsed);
+        }
+      }
+
+      // Suppress turning during roll/flip
+      const savedLeft = input.left, savedRight = input.right;
+      const savedFwd = input.forward, savedBwd = input.backward;
+      if (state.barrelRoll.active) { input.left = false; input.right = false; }
+      if (state.flip.active) { input.left = false; input.right = false; input.forward = false; input.backward = false; }
+
       updateShipPhysics(shipGroup, physics, input, delta);
+      input.left = savedLeft; input.right = savedRight;
+      input.forward = savedFwd; input.backward = savedBwd;
+
       updateChaseCamera(camera, shipGroup, physics, input, delta);
+
+      // Barrel roll animation (overrides rotation.z after physics bank)
+      updateBarrelRoll(state, shipGroup, elapsed);
+
+      // Flip animation (overrides rotation.y, camera pull-back)
+      updateFlip(state, shipGroup, camera, elements, elapsed);
+      if (state.flip.cameraOffset) {
+        const back = new THREE.Vector3(0, 0, 1).applyQuaternion(shipGroup.quaternion);
+        camera.position.addScaledVector(back, state.flip.cameraOffset);
+      }
 
       // Screen shake on boost
       if (input.boost) {
@@ -1288,6 +1493,9 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
       });
     }
 
+    // Flip burst particles
+    updateFlipBurst(elements.flipBurst, delta);
+
     // Book float
     elements.bookGroup.children.forEach((card) => {
       const d = card.userData;
@@ -1323,6 +1531,7 @@ function setupResize(camera, renderer, composer, bloomPass) {
 // ---------------------------------------------------------------------------
 
 function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
+function easeInOutCubic(t) { return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; }
 function easeOutBack(t) {
   const c = 1.70158;
   return 1 + (c + 1) * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2);

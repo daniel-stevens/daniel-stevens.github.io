@@ -62,6 +62,10 @@ describe('index.html structure', () => {
     assert.match(html, /<canvas\s+id=["']minimap["']/);
     assert.match(html, /border-radius:\s*50%/);
   });
+
+  it('has the action text overlay', () => {
+    assert.match(html, /id=["']action-text["']/);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -286,5 +290,32 @@ describe('scene.js flight system', () => {
     assert.match(scene, /updateMinimap/);
     assert.match(scene, /sweepAngle/);
     assert.match(scene, /radarRange/);
+  });
+
+  it('has barrel roll with double-tap detection and combo counter', () => {
+    assert.match(scene, /triggerBarrelRoll/);
+    assert.match(scene, /updateBarrelRoll/);
+    assert.match(scene, /lastLeftTap/);
+    assert.match(scene, /lastRightTap/);
+    assert.match(scene, /comboCount/);
+    assert.match(scene, /easeInOutCubic/);
+  });
+
+  it('has flip/reverse with Q key', () => {
+    assert.match(scene, /triggerFlip/);
+    assert.match(scene, /updateFlip/);
+    assert.match(scene, /flipRequested/);
+    assert.match(scene, /KeyQ/);
+  });
+
+  it('has flip burst particles', () => {
+    assert.match(scene, /createFlipBurst/);
+    assert.match(scene, /triggerFlipBurst/);
+    assert.match(scene, /updateFlipBurst/);
+  });
+
+  it('has action text overlay', () => {
+    assert.match(scene, /showActionText/);
+    assert.match(scene, /action-text/);
   });
 });
