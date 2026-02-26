@@ -75,8 +75,8 @@ function assert(condition, message) {
   const triggerVisible = await page.isVisible('#prompt-trigger');
   assert(triggerVisible, '#prompt-trigger is visible');
 
-  const cursorVisible = await page.isVisible('#prompt-cursor');
-  assert(cursorVisible, '#prompt-cursor is visible');
+  const buttonVisible = await page.isVisible('#prompt-trigger button');
+  assert(buttonVisible, 'overengineer button is visible');
 
   // ===========================================================================
   // Test 3: CDN resources loaded (wait for imports)
