@@ -121,7 +121,7 @@ function beginTransformation() {
     document.body.appendChild(canvas);
 
     Array.from(document.body.children).forEach((el) => {
-      if (el.id !== 'threejs-canvas' && el.id !== 'flight-hud' && el.id !== 'speed-hud' && el.tagName !== 'SCRIPT' && el.tagName !== 'STYLE') {
+      if (el.id !== 'threejs-canvas' && el.id !== 'flight-hud' && el.id !== 'speed-hud' && el.id !== 'minimap' && el.tagName !== 'SCRIPT' && el.tagName !== 'STYLE') {
         el.style.display = 'none';
       }
     });
@@ -324,11 +324,12 @@ function initThreeScene(canvas) {
   const speedLines = createSpeedLines(scene);
   const boostFlash = createBoostFlash(camera);
   const rainbowTrail = createRainbowTrail(scene);
+  const minimapCtx = initMinimap();
 
   const elements = {
     stars, ambient, titleMesh: null, tagMeshes: [], linkMeshes: [],
     bookGroup, thruster, engineGlowL, engineGlowR,
-    speedLines, boostFlash, rainbowTrail,
+    speedLines, boostFlash, rainbowTrail, minimapCtx,
   };
 
   // Post-processing
@@ -358,7 +359,7 @@ function initThreeScene(canvas) {
   const physics = createShipPhysics();
 
   // Animation loop
-  const state = { introActive: true, introStart: performance.now(), hudShown: false, prevBoost: false };
+  const state = { introActive: true, introStart: performance.now(), hudShown: false, prevBoost: false, minimapFrame: 0 };
   startAnimationLoop(renderFn, elements, camera, shipGroup, physics, input, state, lights);
   setupResize(camera, renderer, composer, bloomPass);
 
@@ -920,6 +921,7 @@ function createFloatingBooks(scene) {
     card.userData.floatSpeed = 0.3 + Math.random() * 0.4;
     card.userData.floatAmp = 0.2 + Math.random() * 0.3;
     card.userData.yBase = card.position.y;
+    card.userData.category = book.category;
 
     group.add(card);
   });
@@ -990,6 +992,154 @@ function wrapBooks(bookGroup, shipPos) {
 }
 
 // ---------------------------------------------------------------------------
+// Minimap (tactical radar)
+// ---------------------------------------------------------------------------
+
+function initMinimap() {
+  const canvas = document.getElementById('minimap');
+  if (!canvas) return null;
+  return canvas.getContext('2d');
+}
+
+function updateMinimap(ctx, shipGroup, bookGroup, elapsed) {
+  const w = ctx.canvas.width;
+  const h = ctx.canvas.height;
+  const cx = w / 2;
+  const cy = h / 2;
+  const radius = (w / 2) - 4;
+  const radarRange = 120;
+  const scale = radius / radarRange;
+  const shipYaw = shipGroup.rotation.y;
+
+  // Sweep angle — one full clockwise rotation every 2 seconds
+  const sweepAngle = (elapsed * Math.PI) % (Math.PI * 2);
+
+  // Clear
+  ctx.clearRect(0, 0, w, h);
+
+  // Background
+  ctx.fillStyle = 'rgba(0, 5, 20, 0.85)';
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Range rings (3 concentric dashed circles)
+  ctx.strokeStyle = 'rgba(0, 255, 136, 0.12)';
+  ctx.lineWidth = 0.5;
+  ctx.setLineDash([2, 4]);
+  for (let i = 1; i <= 3; i++) {
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius * (i / 3), 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+
+  // Crosshairs
+  ctx.strokeStyle = 'rgba(0, 255, 136, 0.06)';
+  ctx.lineWidth = 0.5;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - radius); ctx.lineTo(cx, cy + radius);
+  ctx.moveTo(cx - radius, cy); ctx.lineTo(cx + radius, cy);
+  ctx.stroke();
+
+  // Sweep line — trailing fade (draw ~15 trailing lines)
+  for (let a = 0.03; a < 0.6; a += 0.04) {
+    const fadeAngle = sweepAngle - a;
+    const alpha = 0.15 * (1 - a / 0.6);
+    const ex = cx + Math.sin(fadeAngle) * radius;
+    const ey = cy - Math.cos(fadeAngle) * radius;
+    ctx.strokeStyle = `rgba(0, 255, 136, ${alpha.toFixed(3)})`;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(ex, ey);
+    ctx.stroke();
+  }
+
+  // Main sweep line
+  const sweepEndX = cx + Math.sin(sweepAngle) * radius;
+  const sweepEndY = cy - Math.cos(sweepAngle) * radius;
+  ctx.strokeStyle = 'rgba(0, 255, 136, 0.7)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy);
+  ctx.lineTo(sweepEndX, sweepEndY);
+  ctx.stroke();
+
+  // Book blips
+  const cosY = Math.cos(-shipYaw);
+  const sinY = Math.sin(-shipYaw);
+
+  bookGroup.children.forEach((card) => {
+    const dx = card.position.x - shipGroup.position.x;
+    const dz = card.position.z - shipGroup.position.z;
+    const dist = Math.sqrt(dx * dx + dz * dz);
+    if (dist > radarRange) return;
+
+    // Rotate into ship-local frame (forward = up on radar)
+    const localX = dx * cosY - dz * sinY;
+    const localZ = dx * sinY + dz * cosY;
+
+    // Canvas coords: right = +X, forward = -Y (up)
+    const sx = cx + localX * scale;
+    const sy = cy - localZ * scale;
+
+    // Clip to radar circle
+    const screenDist = Math.sqrt((sx - cx) * (sx - cx) + (sy - cy) * (sy - cy));
+    if (screenDist > radius - 2) return;
+
+    // Brightness based on sweep angle distance
+    const blipAngle = Math.atan2(localX, localZ);
+    let normBlipAngle = blipAngle < 0 ? blipAngle + Math.PI * 2 : blipAngle;
+    let diff = sweepAngle - normBlipAngle;
+    if (diff < 0) diff += Math.PI * 2;
+    const brightness = diff < 0.3 ? 1.0 : Math.max(0.15, 1.0 - diff / (Math.PI * 1.8));
+
+    // Category color
+    const catColor = CATEGORY_COLORS[card.userData.category] || '#6666ff';
+    const r = parseInt(catColor.slice(1, 3), 16);
+    const g = parseInt(catColor.slice(3, 5), 16);
+    const b = parseInt(catColor.slice(5, 7), 16);
+
+    // Glow halo when bright
+    if (brightness > 0.4) {
+      ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${(brightness * 0.25).toFixed(3)})`;
+      ctx.beginPath();
+      ctx.arc(sx, sy, 5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Blip dot
+    ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${brightness.toFixed(3)})`;
+    ctx.beginPath();
+    ctx.arc(sx, sy, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  // Ship indicator — green triangle pointing up (forward)
+  ctx.fillStyle = '#00ff88';
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - 5);
+  ctx.lineTo(cx - 3.5, cy + 3);
+  ctx.lineTo(cx + 3.5, cy + 3);
+  ctx.closePath();
+  ctx.fill();
+
+  // Ship center glow
+  ctx.fillStyle = 'rgba(0, 255, 136, 0.15)';
+  ctx.beginPath();
+  ctx.arc(cx, cy, 7, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Outer ring border
+  ctx.strokeStyle = 'rgba(0, 255, 136, 0.4)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.stroke();
+}
+
+// ---------------------------------------------------------------------------
 // HUD
 // ---------------------------------------------------------------------------
 
@@ -1002,6 +1152,8 @@ function showFlightHUD() {
   }
   const speedHud = document.getElementById('speed-hud');
   if (speedHud) speedHud.style.display = 'block';
+  const minimap = document.getElementById('minimap');
+  if (minimap) minimap.style.display = 'block';
 }
 
 // ---------------------------------------------------------------------------
@@ -1114,6 +1266,11 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
       // Speed HUD
       const speedHud = document.getElementById('speed-hud');
       if (speedHud) speedHud.textContent = 'SPEED: ' + Math.round(physics.speed);
+
+      // Minimap (update every 2nd frame for performance)
+      if (elements.minimapCtx && ++state.minimapFrame % 2 === 0) {
+        updateMinimap(elements.minimapCtx, shipGroup, elements.bookGroup, elapsed);
+      }
     }
 
     // ---- Always-on animations ----

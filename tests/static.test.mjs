@@ -57,6 +57,11 @@ describe('index.html structure', () => {
     assert.match(html, /id=["']speed-hud["']/);
     assert.match(html, /SPEED/);
   });
+
+  it('has the minimap canvas element', () => {
+    assert.match(html, /<canvas\s+id=["']minimap["']/);
+    assert.match(html, /border-radius:\s*50%/);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -274,5 +279,12 @@ describe('scene.js flight system', () => {
 
   it('has speed HUD update', () => {
     assert.match(scene, /speed-hud/);
+  });
+
+  it('has tactical minimap radar', () => {
+    assert.match(scene, /initMinimap/);
+    assert.match(scene, /updateMinimap/);
+    assert.match(scene, /sweepAngle/);
+    assert.match(scene, /radarRange/);
   });
 });
