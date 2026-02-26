@@ -287,10 +287,10 @@ function initThreeScene(canvas) {
 
   // Lighting
   const lights = {
-    ambient: new THREE.AmbientLight(0x334466, 2.0),
-    key: new THREE.PointLight(0x4488ff, 800, 100),
-    fill: new THREE.PointLight(0xff6644, 400, 80),
-    rim: new THREE.PointLight(0x44ffaa, 500, 60),
+    ambient: new THREE.AmbientLight(0x334466, 0.8),
+    key: new THREE.PointLight(0x4488ff, 400, 100),
+    fill: new THREE.PointLight(0xff6644, 200, 80),
+    rim: new THREE.PointLight(0x44ffaa, 250, 60),
   };
   lights.key.position.set(10, 10, 10);
   lights.fill.position.set(-10, -5, 5);
@@ -331,7 +331,7 @@ function initThreeScene(canvas) {
     composer.addPass(new RenderPass(scene, camera));
     bloomPass = new UnrealBloomPass(
       new THREE.Vector2(window.innerWidth, window.innerHeight),
-      1.4, 0.5, 0.05
+      0.6, 0.3, 0.3
     );
     composer.addPass(bloomPass);
     composer.addPass(new OutputPass());
@@ -408,7 +408,7 @@ function createStarfield(scene) {
     size: 1.5,
     vertexColors: true,
     transparent: true,
-    opacity: 0.9,
+    opacity: 0.6,
     sizeAttenuation: true,
   });
 
@@ -442,7 +442,7 @@ function createAmbientParticles(scene) {
     size: 0.4,
     color: 0x8888ff,
     transparent: true,
-    opacity: 0.5,
+    opacity: 0.25,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
   });
@@ -473,7 +473,7 @@ function createTitleText(font) {
   const mat = new THREE.MeshStandardMaterial({
     color: 0x4488ff,
     emissive: 0x2244aa,
-    emissiveIntensity: 0.6,
+    emissiveIntensity: 0.4,
     metalness: 0.8,
     roughness: 0.2,
     transparent: true,
@@ -650,7 +650,7 @@ function createThrusterParticles() {
     size: 0.5,
     color: 0xff8844,
     transparent: true,
-    opacity: 0.7,
+    opacity: 0.5,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
     sizeAttenuation: true,
@@ -703,7 +703,7 @@ function updateThrusterParticles(thruster, shipGroup, physics, input, delta) {
   }
 
   thruster.mesh.geometry.attributes.position.needsUpdate = true;
-  thruster.mesh.material.opacity = thrusting ? 0.7 : 0.2;
+  thruster.mesh.material.opacity = thrusting ? 0.5 : 0.15;
 }
 
 // ---------------------------------------------------------------------------
@@ -854,8 +854,8 @@ function showFlightHUD() {
   const hud = document.getElementById('flight-hud');
   if (!hud) return;
   hud.style.display = 'block';
-  setTimeout(() => { hud.style.opacity = '0'; }, 5000);
-  setTimeout(() => { hud.style.display = 'none'; }, 7000);
+  setTimeout(() => { hud.style.opacity = '0'; }, 8000);
+  setTimeout(() => { hud.style.display = 'none'; }, 10000);
 }
 
 // ---------------------------------------------------------------------------
@@ -936,8 +936,8 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
       if (elements.titleMesh) {
         const speedBoost = 1 + (physics.speed / physics.maxSpeed) * 0.5;
         const hue = (elapsed * 0.3 * speedBoost) % 1;
-        elements.titleMesh.material.color.setHSL(hue, 1.0, 0.55);
-        elements.titleMesh.material.emissive.setHSL(hue, 1.0, 0.3);
+        elements.titleMesh.material.color.setHSL(hue, 1.0, 0.45);
+        elements.titleMesh.material.emissive.setHSL(hue, 1.0, 0.2);
       }
     }
 

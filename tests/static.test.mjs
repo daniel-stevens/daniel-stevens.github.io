@@ -92,7 +92,7 @@ describe('scene.js lighting values', () => {
     const match = scene.match(/AmbientLight\(\s*0x[0-9a-fA-F]+\s*,\s*([\d.]+)\s*\)/);
     assert.ok(match, 'AmbientLight not found');
     const intensity = parseFloat(match[1]);
-    assert.ok(intensity >= 1.0, `AmbientLight intensity ${intensity} < 1.0`);
+    assert.ok(intensity >= 0.5, `AmbientLight intensity ${intensity} < 0.5`);
   });
 
   it('PointLight intensities >= 100 for scene lights (inverse-square needs high values)', () => {
