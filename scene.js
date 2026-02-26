@@ -144,7 +144,7 @@ function beginTransformation() {
 
 function initThreeScene(canvas) {
   // ---- Renderer (no tone mapping — OutputPass will handle it) ----
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.toneMapping = THREE.NoToneMapping;
