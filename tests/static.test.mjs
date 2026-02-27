@@ -1054,3 +1054,275 @@ describe('scene.js wormhole portal', () => {
     assert.match(scene, /state\.wormhole.*gravityMult|wormhole\.gravityMult/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Graphics quality presets (Round 4, Feature A)
+// ---------------------------------------------------------------------------
+
+describe('Graphics quality presets', () => {
+  it('QUALITY_PRESETS constant exists with 4 tiers', () => {
+    assert.match(scene, /const QUALITY_PRESETS\s*=/);
+    assert.match(scene, /QUALITY_PRESETS\s*=\s*\{[\s\S]*?LOW:/);
+    assert.match(scene, /QUALITY_PRESETS\s*=\s*\{[\s\S]*?MEDIUM:/);
+    assert.match(scene, /QUALITY_PRESETS\s*=\s*\{[\s\S]*?HIGH:/);
+    assert.match(scene, /QUALITY_PRESETS\s*=\s*\{[\s\S]*?INSANE:/);
+  });
+
+  it('getAutoQuality function exists', () => {
+    assert.match(scene, /function getAutoQuality/);
+  });
+
+  it('applyQualityPreset function exists', () => {
+    assert.match(scene, /function applyQualityPreset/);
+  });
+
+  it('creation functions accept count parameters', () => {
+    assert.match(scene, /function createStarfield\(scene,\s*count\)/);
+    assert.match(scene, /function createAmbientParticles\(scene,\s*count\)/);
+    assert.match(scene, /function createSpeedLines\(scene,\s*count\)/);
+    assert.match(scene, /function createRainbowTrail\(scene,\s*count\)/);
+    assert.match(scene, /function createThrusterParticles\(count\)/);
+    assert.match(scene, /function createAsteroidField\(scene,\s*count/);
+    assert.match(scene, /function createNebulaClouds\(scene,\s*count\)/);
+    assert.match(scene, /function createContrail\(scene,\s*side,\s*count\)/);
+    assert.match(scene, /function createWarpTunnel\(scene,\s*warpSegs\)/);
+  });
+
+  it('preset counts passed to creation functions in initThreeScene', () => {
+    assert.match(scene, /createStarfield\(scene,\s*preset\.stars\)/);
+    assert.match(scene, /createAmbientParticles\(scene,\s*preset\.ambient\)/);
+    assert.match(scene, /createThrusterParticles\(preset\.thruster\)/);
+    assert.match(scene, /createSpeedLines\(scene,\s*preset\.speedLines\)/);
+    assert.match(scene, /createRainbowTrail\(scene,\s*preset\.trails\)/);
+  });
+
+  it('FPS counter element in HTML', () => {
+    assert.match(html, /id=["']fps-counter["']/);
+  });
+
+  it('quality dropdown in HTML', () => {
+    assert.match(html, /id=["']quality-select["']/);
+    assert.match(html, /id=["']quality-hud["']/);
+  });
+
+  it('state has quality object', () => {
+    assert.match(scene, /quality:\s*\{[\s\S]*?current:/);
+    assert.match(scene, /fpsHistory/);
+  });
+
+  it('auto-downgrade logic exists', () => {
+    assert.match(scene, /lowFpsTimer/);
+    assert.match(scene, /PERFORMANCE ADJUSTED/);
+  });
+
+  it('post-processing passes toggled by preset', () => {
+    assert.match(scene, /chromaPass\.enabled\s*=\s*preset\.chroma/);
+    assert.match(scene, /motionBlurPass\.enabled\s*=\s*preset\.motionBlur/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Ship customization (Round 4, Feature F)
+// ---------------------------------------------------------------------------
+
+describe('Ship customization', () => {
+  it('SHIP_CUSTOMIZATIONS constant exists', () => {
+    assert.match(scene, /const SHIP_CUSTOMIZATIONS\s*=/);
+    assert.match(scene, /engines:/);
+    assert.match(scene, /shields:/);
+    assert.match(scene, /weapons:/);
+  });
+
+  it('has engine types', () => {
+    assert.match(scene, /plasma_drive:/);
+    assert.match(scene, /void_engine:/);
+  });
+
+  it('has shield types', () => {
+    assert.match(scene, /bubble_shield:/);
+    assert.match(scene, /flame_barrier:/);
+    assert.match(scene, /void_shield:/);
+  });
+
+  it('has weapon types', () => {
+    assert.match(scene, /scatter:/);
+    assert.match(scene, /beam:/);
+  });
+
+  it('loadCustomization and saveCustomization exist', () => {
+    assert.match(scene, /function loadCustomization/);
+    assert.match(scene, /function saveCustomization/);
+    assert.match(scene, /danielstevens-ship-config/);
+  });
+
+  it('loadAchievements and saveAchievements exist', () => {
+    assert.match(scene, /function loadAchievements/);
+    assert.match(scene, /function saveAchievements/);
+    assert.match(scene, /danielstevens-achievements/);
+  });
+
+  it('applyEngineCustomization and applyShieldCustomization exist', () => {
+    assert.match(scene, /function applyEngineCustomization/);
+    assert.match(scene, /function applyShieldCustomization/);
+  });
+
+  it('customization panel in HTML', () => {
+    assert.match(html, /id=["']customization-panel["']/);
+  });
+
+  it('TAB key toggles customization panel', () => {
+    assert.match(scene, /Tab.*tabRequested|tabRequested.*Tab/);
+    assert.match(scene, /toggleCustomizationPanel/);
+  });
+
+  it('beam weapon implementation exists', () => {
+    assert.match(scene, /function fireBeamWeapon/);
+    assert.match(scene, /weapon.*===.*beam|beam.*weapon/);
+  });
+
+  it('scatter shot fires multiple missiles', () => {
+    assert.match(scene, /scatter/);
+    assert.match(scene, /spreadAngle/);
+  });
+
+  it('state has customization object', () => {
+    assert.match(scene, /customization:\s*\{/);
+  });
+
+  it('engine sound frequency multiplied', () => {
+    assert.match(scene, /freqMult|engineFreqMult/);
+    assert.match(scene, /60\s*\*\s*fm/);
+  });
+
+  it('flight HUD mentions TAB to customize', () => {
+    assert.match(html, /TAB to customize/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Weather system (Round 4, Feature E)
+// ---------------------------------------------------------------------------
+
+describe('Weather system', () => {
+  it('WEATHER_TYPES and WEATHER_CONFIG exist', () => {
+    assert.match(scene, /const WEATHER_TYPES\s*=/);
+    assert.match(scene, /const WEATHER_CONFIG\s*=/);
+  });
+
+  it('all weather types defined', () => {
+    assert.match(scene, /SOLAR_FLARE/);
+    assert.match(scene, /RADIATION_STORM/);
+    assert.match(scene, /METEOR_SHOWER/);
+    assert.match(scene, /AURORA/);
+    assert.match(scene, /ICE_FIELD/);
+  });
+
+  it('updateWeather function exists', () => {
+    assert.match(scene, /function updateWeather/);
+  });
+
+  it('type-specific update functions exist', () => {
+    assert.match(scene, /function updateSolarFlare/);
+    assert.match(scene, /function updateRadiationStorm/);
+    assert.match(scene, /function updateMeteorShower/);
+    assert.match(scene, /function updateAurora/);
+    assert.match(scene, /function updateIceField/);
+  });
+
+  it('aurora band creation exists', () => {
+    assert.match(scene, /function createAuroraBands/);
+  });
+
+  it('ice crystal creation exists', () => {
+    assert.match(scene, /function createIceCrystals/);
+    assert.match(scene, /OctahedronGeometry/);
+  });
+
+  it('weather cleanup function exists', () => {
+    assert.match(scene, /function cleanupWeather/);
+  });
+
+  it('weather state in state object', () => {
+    assert.match(scene, /weather:\s*\{[\s\S]*?current:/);
+    assert.match(scene, /typesExperienced/);
+  });
+
+  it('weather achievements defined', () => {
+    assert.match(scene, /weathered/);
+    assert.match(scene, /aurora_hunter/);
+    assert.match(scene, /ice_breaker/);
+  });
+
+  it('weather HUD in HTML', () => {
+    assert.match(html, /id=["']weather-hud["']/);
+  });
+
+  it('weather announcement messages', () => {
+    assert.match(scene, /function getWeatherAnnouncement/);
+    assert.match(scene, /SOLAR FLARE INCOMING/);
+    assert.match(scene, /RADIATION STORM/);
+  });
+
+  it('radiation storm drains health', () => {
+    assert.match(scene, /shieldDrain/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Multiplayer ghost ships (Round 4, Feature D)
+// ---------------------------------------------------------------------------
+
+describe('Multiplayer ghost ships', () => {
+  it('initMultiplayer function exists', () => {
+    assert.match(scene, /function initMultiplayer/);
+  });
+
+  it('BroadcastChannel fallback for same-device', () => {
+    assert.match(scene, /BroadcastChannel/);
+    assert.match(scene, /danielstevens-space/);
+  });
+
+  it('createGhostShip and removeGhost functions exist', () => {
+    assert.match(scene, /function createGhostShip/);
+    assert.match(scene, /function removeGhost/);
+  });
+
+  it('broadcastPosition function exists', () => {
+    assert.match(scene, /function broadcastPosition/);
+  });
+
+  it('updateGhostShips function exists', () => {
+    assert.match(scene, /function updateGhostShips/);
+  });
+
+  it('multiplayer state object exists', () => {
+    assert.match(scene, /multiplayer:\s*\{[\s\S]*?enabled:/);
+    assert.match(scene, /ghosts:\s*new Map/);
+    assert.match(scene, /broadcastInterval/);
+  });
+
+  it('ghost ships have wireframe visuals', () => {
+    assert.match(scene, /ConeGeometry/);
+    assert.match(scene, /wireframe:\s*true/);
+  });
+
+  it('ghost blips rendered on minimap', () => {
+    assert.match(scene, /ghost.*position|ghosts\.forEach/);
+  });
+
+  it('players HUD in HTML', () => {
+    assert.match(html, /id=["']players-hud["']/);
+  });
+
+  it('PeerJS script loaded in HTML', () => {
+    assert.match(html, /peerjs/);
+  });
+
+  it('handleGhostData function exists', () => {
+    assert.match(scene, /function handleGhostData/);
+  });
+
+  it('stale ghost cleanup logic', () => {
+    assert.match(scene, /staleThreshold|lastUpdate/);
+  });
+});

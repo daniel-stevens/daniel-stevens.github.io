@@ -243,6 +243,243 @@ const ACHIEVEMENTS = [
 const isMobile = window.innerWidth < 768;
 
 // ---------------------------------------------------------------------------
+// Quality presets
+// ---------------------------------------------------------------------------
+
+const QUALITY_PRESETS = {
+  LOW: {
+    stars: 500, ambient: 150, asteroids: 15, nebulae: 10, debris: 60,
+    thruster: 50, speedLines: 25, trails: 120, contrails: 150,
+    warpSegments: 16, explosions: 100, wormholeParticles: 80,
+    bloom: true, chroma: false, motionBlur: false, lensing: false, crack: false, dimensionShift: false,
+    pixelRatio: 0.5, antialias: false,
+  },
+  MEDIUM: {
+    stars: 1500, ambient: 500, asteroids: 25, nebulae: 18, debris: 130,
+    thruster: 120, speedLines: 60, trails: 300, contrails: 300,
+    warpSegments: 20, explosions: 150, wormholeParticles: 150,
+    bloom: true, chroma: true, motionBlur: false, lensing: true, crack: false, dimensionShift: false,
+    pixelRatio: 0.75, antialias: false,
+  },
+  HIGH: {
+    stars: 3000, ambient: 800, asteroids: 35, nebulae: 25, debris: 200,
+    thruster: 200, speedLines: 100, trails: 500, contrails: 400,
+    warpSegments: 24, explosions: 200, wormholeParticles: 200,
+    bloom: true, chroma: true, motionBlur: true, lensing: true, crack: true, dimensionShift: true,
+    pixelRatio: 1.0, antialias: true,
+  },
+  INSANE: {
+    stars: 6000, ambient: 1500, asteroids: 60, nebulae: 40, debris: 400,
+    thruster: 400, speedLines: 200, trails: 800, contrails: 600,
+    warpSegments: 32, explosions: 300, wormholeParticles: 350,
+    bloom: true, chroma: true, motionBlur: true, lensing: true, crack: true, dimensionShift: true,
+    pixelRatio: 1.5, antialias: true,
+  },
+};
+
+function getAutoQuality() {
+  if (window.innerWidth < 768) return 'LOW';
+  if (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4) return 'MEDIUM';
+  return 'HIGH';
+}
+
+function applyQualityPreset(presetName, state, elements, scene, renderer) {
+  const preset = QUALITY_PRESETS[presetName];
+  if (!preset) return;
+  state.quality.current = presetName;
+
+  // Update renderer
+  if (renderer) renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1) * preset.pixelRatio);
+
+  // Toggle post-processing passes
+  if (elements.chromaPass) elements.chromaPass.enabled = preset.chroma;
+  if (elements.motionBlurPass) elements.motionBlurPass.enabled = preset.motionBlur;
+  if (elements.lensingPass) elements.lensingPass.enabled = preset.lensing;
+  if (elements.crackPass) elements.crackPass.enabled = preset.crack;
+  if (elements.dimensionShiftPass) elements.dimensionShiftPass.enabled = preset.dimensionShift;
+
+  // Recreate particle systems
+  const recreate = (oldMesh, createFn, ...args) => {
+    if (oldMesh) {
+      scene.remove(oldMesh);
+      if (oldMesh.geometry) oldMesh.geometry.dispose();
+      if (oldMesh.material) oldMesh.material.dispose();
+    }
+    return createFn(...args);
+  };
+
+  // Stars
+  elements.stars = recreate(elements.stars, createStarfield, scene, preset.stars);
+  // Ambient
+  const oldAmbientMesh = elements.ambient ? elements.ambient.mesh : null;
+  if (oldAmbientMesh) { scene.remove(oldAmbientMesh); oldAmbientMesh.geometry.dispose(); oldAmbientMesh.material.dispose(); }
+  elements.ambient = createAmbientParticles(scene, preset.ambient);
+  // Speed lines
+  const oldSlMesh = elements.speedLines ? elements.speedLines.mesh : null;
+  if (oldSlMesh) { scene.remove(oldSlMesh); oldSlMesh.geometry.dispose(); oldSlMesh.material.dispose(); }
+  elements.speedLines = createSpeedLines(scene, preset.speedLines);
+  // Rainbow trail
+  const oldRtMesh = elements.rainbowTrail ? elements.rainbowTrail.mesh : null;
+  if (oldRtMesh) { scene.remove(oldRtMesh); oldRtMesh.geometry.dispose(); oldRtMesh.material.dispose(); }
+  elements.rainbowTrail = createRainbowTrail(scene, preset.trails);
+  // Thruster
+  const oldThrMesh = elements.thruster ? elements.thruster.mesh : null;
+  if (oldThrMesh) { scene.remove(oldThrMesh); oldThrMesh.geometry.dispose(); oldThrMesh.material.dispose(); }
+  elements.thruster = createThrusterParticles(preset.thruster);
+  scene.add(elements.thruster.mesh);
+
+  // Update quality HUD dropdown
+  const dropdown = document.getElementById('quality-select');
+  if (dropdown) dropdown.value = presetName;
+  const fpsEl = document.getElementById('fps-counter');
+  if (fpsEl) fpsEl.textContent = 'FPS: --';
+
+  showActionText('QUALITY: ' + presetName);
+}
+
+// ---------------------------------------------------------------------------
+// Ship customization
+// ---------------------------------------------------------------------------
+
+const SHIP_CUSTOMIZATIONS = {
+  engines: {
+    standard:     { name: 'Standard',     contrailColor: 0xff6633, thrusterColor: 0xff8844, glowColor: 0xff6633, freqMult: 1.0, unlock: null },
+    plasma_drive: { name: 'Plasma Drive', contrailColor: 0x00ccff, thrusterColor: 0x00ddff, glowColor: 0x00ccff, freqMult: 1.4, unlock: 'speed_demon' },
+    void_engine:  { name: 'Void Engine',  contrailColor: 0x8800ff, thrusterColor: 0xaa44ff, glowColor: 0x8800ff, freqMult: 0.6, unlock: 'dimension_hopper' },
+  },
+  shields: {
+    hex_grid:      { name: 'Hex Grid',      geometryType: 'icosahedron', wireframe: true,  color: 0x4488ff, unlock: null },
+    bubble_shield: { name: 'Bubble Shield', geometryType: 'sphere',      wireframe: false, color: 0x00ffcc, unlock: 'untouchable' },
+    flame_barrier: { name: 'Flame Barrier', geometryType: 'icosahedron', wireframe: true,  color: 0xff4422, unlock: 'extinction_event' },
+    void_shield:   { name: 'Void Shield',   geometryType: 'sphere',      wireframe: false, color: 0x8800ff, unlock: 'dimension_hopper' },
+  },
+  weapons: {
+    homing:  { name: 'Homing Missiles', desc: 'Lock-on missiles', unlock: null },
+    scatter: { name: 'Scatter Shot',    desc: '3-missile spread',  unlock: 'combo_master' },
+    beam:    { name: 'Beam Weapon',     desc: 'Instant raycast',   unlock: 'slayer_25' },
+  },
+};
+
+function loadCustomization() {
+  try {
+    const raw = localStorage.getItem('danielstevens-ship-config');
+    if (raw) return JSON.parse(raw);
+  } catch (e) { /* silent */ }
+  return { engine: 'standard', shield: 'hex_grid', weapon: 'homing' };
+}
+
+function saveCustomization(state) {
+  try { localStorage.setItem('danielstevens-ship-config', JSON.stringify(state.customization)); } catch (e) { /* silent */ }
+}
+
+function loadAchievements() {
+  try {
+    const raw = localStorage.getItem('danielstevens-achievements');
+    if (raw) return new Set(JSON.parse(raw));
+  } catch (e) { /* silent */ }
+  return new Set();
+}
+
+function saveAchievements(state) {
+  try { localStorage.setItem('danielstevens-achievements', JSON.stringify([...state.achievements.unlocked])); } catch (e) { /* silent */ }
+}
+
+function applyEngineCustomization(state, elements) {
+  const cfg = SHIP_CUSTOMIZATIONS.engines[state.customization.engine];
+  if (!cfg) return;
+  if (elements.thruster) elements.thruster.mesh.material.color.setHex(cfg.thrusterColor);
+  if (elements.engineGlowL) elements.engineGlowL.color.setHex(cfg.glowColor);
+  if (elements.engineGlowR) elements.engineGlowR.color.setHex(cfg.glowColor);
+  state.customization.engineFreqMult = cfg.freqMult;
+  state.customization.contrailColor = cfg.contrailColor;
+}
+
+function applyShieldCustomization(state, elements, shipGroup) {
+  const cfg = SHIP_CUSTOMIZATIONS.shields[state.customization.shield];
+  if (!cfg || !elements.shield) return;
+  // Remove old meshes
+  if (elements.shield.outer) { shipGroup.remove(elements.shield.outer); elements.shield.outer.geometry.dispose(); elements.shield.outer.material.dispose(); }
+  if (elements.shield.inner) { shipGroup.remove(elements.shield.inner); elements.shield.inner.geometry.dispose(); elements.shield.inner.material.dispose(); }
+  // Create new
+  const outerGeo = cfg.geometryType === 'sphere' ? new THREE.SphereGeometry(7, 32, 32) : new THREE.IcosahedronGeometry(7, 1);
+  const outerMat = new THREE.MeshBasicMaterial({ wireframe: cfg.wireframe, transparent: true, opacity: 0.04, color: cfg.color, blending: THREE.AdditiveBlending, depthWrite: false });
+  elements.shield.outer = new THREE.Mesh(outerGeo, outerMat);
+  shipGroup.add(elements.shield.outer);
+  const innerGeo = cfg.geometryType === 'sphere' ? new THREE.SphereGeometry(6, 32, 32) : new THREE.SphereGeometry(6, 32, 32);
+  const innerMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.02, color: cfg.color, blending: THREE.AdditiveBlending, depthWrite: false });
+  elements.shield.inner = new THREE.Mesh(innerGeo, innerMat);
+  shipGroup.add(elements.shield.inner);
+}
+
+function toggleCustomizationPanel(state) {
+  const panel = document.getElementById('customization-panel');
+  if (!panel) return;
+  const visible = panel.style.display !== 'none';
+  panel.style.display = visible ? 'none' : 'flex';
+  if (!visible) updateCustomizationPanelUI(state);
+}
+
+function updateCustomizationPanelUI(state) {
+  const panel = document.getElementById('customization-panel');
+  if (!panel) return;
+  let html = '<div style="background:rgba(0,0,0,0.9); border:1px solid rgba(0,255,136,0.3); border-radius:8px; padding:20px; max-width:600px; width:90vw; color:#fff; font-family:monospace; max-height:80vh; overflow-y:auto;">';
+  html += '<h2 style="margin:0 0 16px; color:#00ff88; text-align:center;">SHIP CUSTOMIZATION</h2>';
+
+  const sections = [
+    { key: 'engines', label: 'ENGINE', stateKey: 'engine' },
+    { key: 'shields', label: 'SHIELD', stateKey: 'shield' },
+    { key: 'weapons', label: 'WEAPON', stateKey: 'weapon' },
+  ];
+  sections.forEach(sec => {
+    html += '<div style="margin-bottom:12px;"><h3 style="color:#0af; margin:0 0 8px;">' + sec.label + '</h3>';
+    Object.entries(SHIP_CUSTOMIZATIONS[sec.key]).forEach(([id, cfg]) => {
+      const locked = cfg.unlock && !state.achievements.unlocked.has(cfg.unlock);
+      const selected = state.customization[sec.stateKey] === id;
+      const bg = selected ? 'rgba(0,255,136,0.2)' : 'rgba(255,255,255,0.05)';
+      const border = selected ? '1px solid #00ff88' : '1px solid rgba(255,255,255,0.1)';
+      const cursor = locked ? 'not-allowed' : 'pointer';
+      const opacity = locked ? '0.4' : '1';
+      html += '<button data-section="' + sec.stateKey + '" data-id="' + id + '" ' + (locked ? 'disabled' : '') + ' style="display:block; width:100%; text-align:left; background:' + bg + '; border:' + border + '; color:#fff; padding:8px 12px; margin:4px 0; border-radius:4px; cursor:' + cursor + '; opacity:' + opacity + '; font-family:monospace; font-size:13px;">';
+      html += cfg.name;
+      if (locked) html += ' <span style="color:#ff4444;">[LOCKED: ' + cfg.unlock + ']</span>';
+      if (selected) html += ' <span style="color:#00ff88;">EQUIPPED</span>';
+      html += '</button>';
+    });
+    html += '</div>';
+  });
+  html += '<div style="text-align:center; margin-top:12px; color:rgba(255,255,255,0.4); font-size:11px;">Press TAB to close</div>';
+  html += '</div>';
+  panel.innerHTML = html;
+
+  // Attach button listeners
+  panel.querySelectorAll('button[data-section]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const sec = btn.dataset.section;
+      const id = btn.dataset.id;
+      state.customization[sec] = id;
+      state.customization._dirty = true;
+      saveCustomization(state);
+      updateCustomizationPanelUI(state);
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Weather system constants
+// ---------------------------------------------------------------------------
+
+const WEATHER_TYPES = ['CLEAR', 'SOLAR_FLARE', 'CLEAR', 'RADIATION_STORM', 'CLEAR', 'METEOR_SHOWER', 'CLEAR', 'AURORA', 'CLEAR', 'ICE_FIELD'];
+
+const WEATHER_CONFIG = {
+  CLEAR:           { duration: [30, 60], fogDensity: 0, shieldDrain: 0 },
+  SOLAR_FLARE:     { duration: [15, 25], fogDensity: 0, shieldDrain: 0 },
+  RADIATION_STORM: { duration: [12, 20], fogDensity: 0.008, shieldDrain: 5 },
+  METEOR_SHOWER:   { duration: [15, 25], fogDensity: 0, shieldDrain: 0 },
+  AURORA:          { duration: [20, 30], fogDensity: 0, shieldDrain: 0 },
+  ICE_FIELD:       { duration: [15, 25], fogDensity: 0.003, shieldDrain: 0 },
+};
+
+// ---------------------------------------------------------------------------
 // Preload font immediately
 // ---------------------------------------------------------------------------
 
@@ -308,7 +545,7 @@ function beginTransformation() {
     document.body.appendChild(canvas);
 
     Array.from(document.body.children).forEach((el) => {
-      if (el.id !== 'threejs-canvas' && el.id !== 'flight-hud' && el.id !== 'speed-hud' && el.id !== 'minimap' && el.id !== 'action-text' && el.id !== 'rgb-slider-hud' && el.id !== 'health-bar-hud' && el.id !== 'achievement-container' && el.id !== 'jump-cooldown-hud' && el.id !== 'emp-cooldown-hud' && el.id !== 'wormhole-cooldown-hud' && el.tagName !== 'SCRIPT' && el.tagName !== 'STYLE') {
+      if (el.id !== 'threejs-canvas' && el.id !== 'flight-hud' && el.id !== 'speed-hud' && el.id !== 'minimap' && el.id !== 'action-text' && el.id !== 'rgb-slider-hud' && el.id !== 'health-bar-hud' && el.id !== 'achievement-container' && el.id !== 'jump-cooldown-hud' && el.id !== 'emp-cooldown-hud' && el.id !== 'wormhole-cooldown-hud' && el.id !== 'quality-hud' && el.id !== 'fps-counter' && el.id !== 'weather-hud' && el.id !== 'players-hud' && el.id !== 'customization-panel' && el.tagName !== 'SCRIPT' && el.tagName !== 'STYLE') {
         el.style.display = 'none';
       }
     });
@@ -334,7 +571,7 @@ function createInputState(canvas) {
     boost: false, mouseX: 0, mouseY: 0, active: false,
     lastLeftTap: 0, lastRightTap: 0, leftTapped: false, rightTapped: false,
     flipRequested: false, fireRequested: false,
-    chargeJump: false, empCharge: false,
+    chargeJump: false, empCharge: false, tabRequested: false,
   };
 
   window.addEventListener('keydown', (e) => {
@@ -349,6 +586,7 @@ function createInputState(canvas) {
       case 'KeyF': input.fireRequested = true; break;
       case 'ShiftLeft': case 'ShiftRight': input.chargeJump = true; e.preventDefault(); break;
       case 'KeyE': input.empCharge = true; break;
+      case 'Tab': input.tabRequested = true; e.preventDefault(); break;
     }
   });
 
@@ -470,9 +708,11 @@ function updateChaseCamera(camera, shipGroup, physics, input, delta) {
 // ---------------------------------------------------------------------------
 
 function initThreeScene(canvas) {
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+  const qualityLevel = getAutoQuality();
+  const preset = QUALITY_PRESETS[qualityLevel];
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: preset.antialias, preserveDrawingBuffer: true });
   renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1) * preset.pixelRatio);
   renderer.toneMapping = THREE.NoToneMapping;
 
   const scene = new THREE.Scene();
@@ -495,8 +735,8 @@ function initThreeScene(canvas) {
   scene.add(lights.ambient, lights.key, lights.fill, lights.rim);
 
   // Non-font elements
-  const stars = createStarfield(scene);
-  const ambient = createAmbientParticles(scene);
+  const stars = createStarfield(scene, preset.stars);
+  const ambient = createAmbientParticles(scene, preset.ambient);
   const bookGroup = createFloatingBooks(scene);
 
   // Ship group
@@ -513,23 +753,23 @@ function initThreeScene(canvas) {
   shipGroup.add(engineGlowR);
 
   // Thruster particles (world space — NOT parented to shipGroup)
-  const thruster = createThrusterParticles();
+  const thruster = createThrusterParticles(preset.thruster);
   scene.add(thruster.mesh);
 
   // Over-the-top effects
-  const speedLines = createSpeedLines(scene);
+  const speedLines = createSpeedLines(scene, preset.speedLines);
   const boostFlash = createBoostFlash(camera);
-  const rainbowTrail = createRainbowTrail(scene);
+  const rainbowTrail = createRainbowTrail(scene, preset.trails);
   const minimapCtx = initMinimap();
   const flipBurst = createFlipBurst(scene);
 
   // Round 2 effects
-  const asteroids = createAsteroidField(scene);
-  const nebulae = createNebulaClouds(scene);
+  const asteroids = createAsteroidField(scene, preset.asteroids, preset.debris);
+  const nebulae = createNebulaClouds(scene, preset.nebulae);
   const shield = createShipShield(shipGroup);
-  const contrailL = createContrail(scene, -8);
-  const contrailR = createContrail(scene, 8);
-  const warpTunnel = createWarpTunnel(scene);
+  const contrailL = createContrail(scene, -8, preset.contrails);
+  const contrailR = createContrail(scene, 8, preset.contrails);
+  const warpTunnel = createWarpTunnel(scene, preset.warpSegments);
   const shockwaves = createShockwavePool(scene);
   const missiles = createMissilePool(scene);
   const explosions = createExplosionPool(scene);
@@ -552,7 +792,6 @@ function initThreeScene(canvas) {
     shockwaves, missiles, explosions, sound, lightning, blackHole, drone,
     whale, whaleSong, comets, empMeshes: null,
     music, wormhole, wormholeSound,
-    music: null, wormhole: null, wormholeSound: null,
     bloomPass: null, chromaPass: null, motionBlurPass: null, lensingPass: null, crackPass: null, dimensionShiftPass: null,
   };
 
@@ -595,6 +834,13 @@ function initThreeScene(canvas) {
 
   elements.bloomPass = bloomPass;
   elements.empMeshes = createEMPMesh(scene, shipGroup);
+
+  // Apply quality preset to post-processing passes
+  if (elements.chromaPass) elements.chromaPass.enabled = preset.chroma;
+  if (elements.motionBlurPass) elements.motionBlurPass.enabled = preset.motionBlur;
+  if (elements.lensingPass) elements.lensingPass.enabled = preset.lensing;
+  if (elements.crackPass) elements.crackPass.enabled = preset.crack;
+  if (elements.dimensionShiftPass) elements.dimensionShiftPass.enabled = preset.dimensionShift;
 
   // Input + Physics
   const input = createInputState(canvas);
@@ -650,8 +896,48 @@ function initThreeScene(canvas) {
       cooldown: 0,
       gravityMult: 1.0,
     },
+    quality: { current: qualityLevel, fpsHistory: [], fpsDisplay: 0, lowFpsTimer: 0, lastFpsUpdate: 0 },
+    customization: { ...loadCustomization(), engineFreqMult: 1.0, contrailColor: 0xff6633 },
+    weather: {
+      current: 'CLEAR', timer: 45 + Math.random() * 15, transitionTimer: 0, transitionFrom: null,
+      cycleIndex: 0, typesExperienced: new Set(),
+      solarFlare: {}, radiation: {}, meteorShower: { spawnTimer: 0 },
+      aurora: { ribbons: [] }, iceField: { crystals: [] },
+    },
+    multiplayer: {
+      enabled: false, peer: null, connections: [], ghosts: new Map(),
+      myId: null, broadcastTimer: 0, broadcastInterval: 0.1, maxConnections: 8, fallbackChannel: null,
+    },
   };
-  startAnimationLoop(renderFn, elements, camera, shipGroup, physics, input, state, lights, rgbState);
+
+  // Load persisted achievements
+  const savedAch = loadAchievements();
+  if (savedAch.size > 0) state.achievements.unlocked = savedAch;
+
+  // Add weather achievements
+  ACHIEVEMENTS.push(
+    { id: 'weathered', name: 'WEATHERED', desc: 'Experience all 5 weather types', check: s => s.weatheredAll },
+    { id: 'aurora_hunter', name: 'AURORA HUNTER', desc: 'Fly within 30 units of aurora', check: s => s.auroraProximity },
+    { id: 'ice_breaker', name: 'ICE BREAKER', desc: 'Destroy 10 ice crystals', check: s => (s.iceCrystalsDestroyed || 0) >= 10 },
+  );
+
+  // Apply engine/shield customization
+  applyEngineCustomization(state, elements);
+  applyShieldCustomization(state, elements, shipGroup);
+
+  // Quality dropdown listener
+  const qualitySelect = document.getElementById('quality-select');
+  if (qualitySelect) {
+    qualitySelect.value = qualityLevel;
+    qualitySelect.addEventListener('change', () => {
+      applyQualityPreset(qualitySelect.value, state, elements, scene, renderer);
+    });
+  }
+
+  // Initialize multiplayer
+  initMultiplayer(state, scene);
+
+  startAnimationLoop(renderFn, elements, camera, shipGroup, physics, input, state, lights, rgbState, scene, renderer);
   setupResize(camera, renderer, composer, bloomPass);
 
   // Font ready — assemble ship
@@ -684,8 +970,8 @@ function initThreeScene(canvas) {
 // Starfield
 // ---------------------------------------------------------------------------
 
-function createStarfield(scene) {
-  const count = isMobile ? 1000 : 3000;
+function createStarfield(scene, count) {
+  count = count || (isMobile ? 1000 : 3000);
   const positions = new Float32Array(count * 3);
   const colors = new Float32Array(count * 3);
 
@@ -723,8 +1009,8 @@ function createStarfield(scene) {
 // Ambient particles
 // ---------------------------------------------------------------------------
 
-function createAmbientParticles(scene) {
-  const count = isMobile ? 300 : 800;
+function createAmbientParticles(scene, count) {
+  count = count || (isMobile ? 300 : 800);
   const positions = new Float32Array(count * 3);
   const velocities = new Float32Array(count * 3);
 
@@ -939,8 +1225,8 @@ function createInteractiveLinks(font, camera, canvas) {
 // Thruster particles
 // ---------------------------------------------------------------------------
 
-function createThrusterParticles() {
-  const count = isMobile ? 80 : 200;
+function createThrusterParticles(count) {
+  count = count || (isMobile ? 80 : 200);
   const positions = new Float32Array(count * 3);
   const lifetimes = new Float32Array(count); // 0 = dead
   const velocities = new Float32Array(count * 3);
@@ -1014,8 +1300,8 @@ function updateThrusterParticles(thruster, shipGroup, physics, input, delta) {
 // Speed lines (hyperspace streaks)
 // ---------------------------------------------------------------------------
 
-function createSpeedLines(scene) {
-  const count = isMobile ? 40 : 100;
+function createSpeedLines(scene, count) {
+  count = count || (isMobile ? 40 : 100);
   const positions = new Float32Array(count * 6);
   const radials = [];
   for (let i = 0; i < count; i++) {
@@ -1102,8 +1388,8 @@ function triggerBoostFlash(flash) { flash.active = true; flash.time = 0; }
 // Rainbow trail
 // ---------------------------------------------------------------------------
 
-function createRainbowTrail(scene) {
-  const count = isMobile ? 200 : 500;
+function createRainbowTrail(scene, count) {
+  count = count || (isMobile ? 200 : 500);
   const positions = new Float32Array(count * 3);
   const colors = new Float32Array(count * 3);
 
@@ -1288,8 +1574,8 @@ function wrapBooks(bookGroup, shipPos) {
 // Asteroid field
 // ---------------------------------------------------------------------------
 
-function createAsteroidField(scene) {
-  const count = isMobile ? 20 : 35;
+function createAsteroidField(scene, count, debrisOpt) {
+  count = count || (isMobile ? 20 : 35);
   const meshes = [];
   const rotationSpeeds = new Float32Array(count * 3);
   const sizes = new Float32Array(count);
@@ -1339,7 +1625,7 @@ function createAsteroidField(scene) {
   }
 
   // Debris particles
-  const debrisCount = isMobile ? 100 : 200;
+  const debrisCount = debrisOpt || (isMobile ? 100 : 200);
   const debrisPos = new Float32Array(debrisCount * 3);
   const debrisColors = new Float32Array(debrisCount * 3);
   for (let i = 0; i < debrisCount; i++) {
@@ -1440,8 +1726,8 @@ function createNebulaTexture(color) {
   return new THREE.CanvasTexture(c);
 }
 
-function createNebulaClouds(scene) {
-  const count = isMobile ? 15 : 25;
+function createNebulaClouds(scene, count) {
+  count = count || (isMobile ? 15 : 25);
   const palette = ['#6B2FA0', '#1A6BFF', '#FF2D95', '#00E5FF', '#FF8800'];
   const clouds = [];
 
@@ -1488,7 +1774,7 @@ function createNebulaClouds(scene) {
   }
 
   // Dust pool
-  const dustCount = isMobile ? 50 : 100;
+  const dustCount = count * 4;
   const dustPositions = new Float32Array(dustCount * 3);
   const dustVelocities = new Float32Array(dustCount * 3);
   const dustLifetimes = new Float32Array(dustCount);
@@ -1657,8 +1943,8 @@ function updateShipShield(shield, physics, input, elapsed, delta, hue, asteroids
 // Contrail trail
 // ---------------------------------------------------------------------------
 
-function createContrail(scene, side) {
-  const count = isMobile ? 250 : 400;
+function createContrail(scene, side, count) {
+  count = count || (isMobile ? 250 : 400);
   const positions = new Float32Array(count * 3);
   const colors = new Float32Array(count * 3);
   const ages = new Float32Array(count).fill(999);
@@ -1790,14 +2076,14 @@ function createWarpTunnelTexture(width, hueShift) {
   return texture;
 }
 
-function createWarpTunnel(scene) {
+function createWarpTunnel(scene, warpSegs) {
   const group = new THREE.Group();
   const radii = [6, 10, 15, 22];
   const baseOpacities = [0.18, 0.12, 0.08, 0.05];
   const rings = [];
 
   radii.forEach((r, i) => {
-    const geo = new THREE.CylinderGeometry(r, r, 200, isMobile ? 16 : 24, 1, true);
+    const geo = new THREE.CylinderGeometry(r, r, 200, warpSegs || (isMobile ? 16 : 24), 1, true);
     const mat = new THREE.MeshBasicMaterial({
       map: createWarpTunnelTexture(512, i * 0.25),
       transparent: true, opacity: 0,
@@ -2241,7 +2527,7 @@ function createMissilePool(scene) {
   return { meshes, states, trails, count };
 }
 
-function fireMissile(pool, shipGroup, physics, asteroids) {
+function fireMissile(pool, shipGroup, physics, asteroids, spreadAngle) {
   for (let i = 0; i < pool.count; i++) {
     if (!pool.states[i].active) {
       const s = pool.states[i];
@@ -2249,6 +2535,10 @@ function fireMissile(pool, shipGroup, physics, asteroids) {
       s.lifetime = 5;
 
       const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(shipGroup.quaternion);
+      if (spreadAngle) {
+        const up = new THREE.Vector3(0, 1, 0).applyQuaternion(shipGroup.quaternion);
+        fwd.applyAxisAngle(up, spreadAngle);
+      }
       s.position.copy(shipGroup.position).addScaledVector(fwd, 3);
       s.velocity.copy(fwd).multiplyScalar(physics.speed + 20);
 
@@ -2729,13 +3019,16 @@ function updateAchievementStats(state, physics, delta) {
 
 function checkAchievements(state) {
   const stats = state.achievements.stats;
+  let newUnlock = false;
   for (const ach of ACHIEVEMENTS) {
     if (state.achievements.unlocked.has(ach.id)) continue;
     if (ach.check(stats)) {
       state.achievements.unlocked.add(ach.id);
       state.achievements.popupQueue.push(ach);
+      newUnlock = true;
     }
   }
+  if (newUnlock) state.achievements._savePending = true;
 }
 
 function updateAchievementPopups(state, elements, delta) {
@@ -3144,14 +3437,15 @@ function createSoundEngine() {
   }
 }
 
-function updateEngineSound(sound, physics, rgb) {
+function updateEngineSound(sound, physics, rgb, freqMult) {
   if (!sound || sound.ctx.state !== 'running') return;
+  const fm = freqMult || 1.0;
   const speedRatio = physics.speed / physics.maxSpeed;
   const vol = speedRatio * 0.15 * rgb;
   sound.engines.gainL.gain.value += (vol - sound.engines.gainL.gain.value) * 0.1;
   sound.engines.gainR.gain.value += (vol - sound.engines.gainR.gain.value) * 0.1;
-  sound.engines.oscL.frequency.value = 60 * (1 + speedRatio * 0.5);
-  sound.engines.oscR.frequency.value = 90 * (1 + speedRatio * 0.5);
+  sound.engines.oscL.frequency.value = 60 * fm * (1 + speedRatio * 0.5);
+  sound.engines.oscR.frequency.value = 90 * fm * (1 + speedRatio * 0.5);
   // Master gain scales with RGB
   sound.masterGain.gain.value = 0.1 + rgb * 0.4;
 }
@@ -4393,6 +4687,411 @@ function triggerWormholeSound(sound) {
 }
 
 // ---------------------------------------------------------------------------
+// Weather system
+// ---------------------------------------------------------------------------
+
+function createAuroraBands(scene, shipGroup) {
+  const ribbons = [];
+  for (let i = 0; i < 3; i++) {
+    const width = 80 + i * 20;
+    const segs = 32;
+    const geo = new THREE.PlaneGeometry(width, 15, segs, 1);
+    const mat = new THREE.MeshBasicMaterial({
+      color: new THREE.Color().setHSL(0.3 + i * 0.15, 0.9, 0.5),
+      transparent: true, opacity: 0, side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(
+      shipGroup.position.x + (Math.random() - 0.5) * 60,
+      shipGroup.position.y + 30 + i * 15,
+      shipGroup.position.z + (Math.random() - 0.5) * 60
+    );
+    mesh.rotation.x = Math.PI * 0.1;
+    scene.add(mesh);
+    ribbons.push(mesh);
+  }
+  return ribbons;
+}
+
+function createIceCrystals(scene, shipGroup, count) {
+  const crystals = [];
+  for (let i = 0; i < count; i++) {
+    const geo = new THREE.OctahedronGeometry(0.5 + Math.random() * 1.5, 0);
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0x88ddff, emissive: 0x0044aa, emissiveIntensity: 0.3,
+      transparent: true, opacity: 0, roughness: 0.1, metalness: 0.8,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(
+      shipGroup.position.x + (Math.random() - 0.5) * 100,
+      shipGroup.position.y + (Math.random() - 0.5) * 60,
+      shipGroup.position.z + (Math.random() - 0.5) * 100
+    );
+    mesh.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, 0);
+    scene.add(mesh);
+    crystals.push(mesh);
+  }
+  return crystals;
+}
+
+function getWeatherAnnouncement(type) {
+  const msgs = {
+    SOLAR_FLARE: 'SOLAR FLARE INCOMING!',
+    RADIATION_STORM: 'WARNING: RADIATION STORM!',
+    METEOR_SHOWER: 'METEOR SHOWER!',
+    AURORA: 'AURORA BOREALIS DETECTED',
+    ICE_FIELD: 'ENTERING ICE FIELD',
+    CLEAR: 'WEATHER CLEARING',
+  };
+  return msgs[type] || '';
+}
+
+function updateWeather(state, scene, elements, shipGroup, physics, elapsed, delta, rgb, camera) {
+  const w = state.weather;
+  const cfg = WEATHER_CONFIG[w.current];
+
+  // Timer countdown
+  w.timer -= delta;
+  if (w.timer <= 0) {
+    // Cleanup previous weather
+    cleanupWeather(w, scene);
+    // Advance cycle
+    w.cycleIndex = (w.cycleIndex + 1) % WEATHER_TYPES.length;
+    w.current = WEATHER_TYPES[w.cycleIndex];
+    const newCfg = WEATHER_CONFIG[w.current];
+    w.timer = newCfg.duration[0] + Math.random() * (newCfg.duration[1] - newCfg.duration[0]);
+    w.transitionTimer = 5.0;
+    w.transitionFrom = null;
+    const msg = getWeatherAnnouncement(w.current);
+    if (msg) showActionText(msg);
+    if (w.current !== 'CLEAR') w.typesExperienced.add(w.current);
+    // Update weather HUD
+    const whud = document.getElementById('weather-hud');
+    if (whud) whud.textContent = w.current === 'CLEAR' ? '' : w.current.replace(/_/g, ' ');
+  }
+
+  // Transition fade-in
+  const transitionPct = w.transitionTimer > 0 ? 1 - (w.transitionTimer / 5.0) : 1;
+  if (w.transitionTimer > 0) w.transitionTimer -= delta;
+
+  // Type-specific updates
+  switch (w.current) {
+    case 'SOLAR_FLARE': updateSolarFlare(state, elements, elapsed, delta, rgb, transitionPct); break;
+    case 'RADIATION_STORM': updateRadiationStorm(state, scene, elements, elapsed, delta, rgb, transitionPct); break;
+    case 'METEOR_SHOWER': updateMeteorShower(state, elements, shipGroup, elapsed, delta, rgb, transitionPct); break;
+    case 'AURORA': updateAurora(state, scene, elements, shipGroup, elapsed, delta, rgb, transitionPct); break;
+    case 'ICE_FIELD': updateIceField(state, scene, elements, shipGroup, elapsed, delta, rgb, transitionPct); break;
+  }
+
+  // Weather achievement
+  if (w.typesExperienced.size >= 5) {
+    state.achievements.stats.weatheredAll = true;
+  }
+}
+
+function updateSolarFlare(state, elements, elapsed, delta, rgb, pct) {
+  const intensity = (0.5 + 0.5 * Math.sin(elapsed * 2.0)) * pct;
+  if (elements.bloomPass) {
+    elements.bloomPass.strength = (0.05 + rgb * 0.45) + intensity * 0.8 * rgb;
+  }
+}
+
+function updateRadiationStorm(state, scene, elements, elapsed, delta, rgb, pct) {
+  const cfg = WEATHER_CONFIG.RADIATION_STORM;
+  if (!scene.fog) scene.fog = new THREE.FogExp2(0x003300, 0);
+  scene.fog.density = cfg.fogDensity * pct * rgb;
+  scene.fog.color.setHex(0x003300);
+  // Health drain
+  if (pct > 0.5 && !state.health.dead) {
+    state.health.current = Math.max(0, state.health.current - cfg.shieldDrain * delta);
+    if (state.health.current <= 0) {
+      state.health.dead = true;
+      state.health.respawnTimer = 3;
+    }
+  }
+}
+
+function updateMeteorShower(state, elements, shipGroup, elapsed, delta, rgb, pct) {
+  const w = state.weather;
+  w.meteorShower.spawnTimer = (w.meteorShower.spawnTimer || 0) - delta;
+  if (w.meteorShower.spawnTimer <= 0 && elements.comets) {
+    w.meteorShower.spawnTimer = 0.2 + Math.random() * 0.3;
+    // Activate an inactive comet near ship
+    for (const c of elements.comets) {
+      if (!c.active) {
+        c.active = true;
+        c.mesh.visible = true;
+        c.mesh.scale.setScalar(0.3 + Math.random() * 0.4);
+        const offset = new THREE.Vector3((Math.random()-0.5)*40, (Math.random()-0.5)*40, -30 - Math.random()*30);
+        offset.applyQuaternion(shipGroup.quaternion);
+        c.position.copy(shipGroup.position).add(offset);
+        const fwd = new THREE.Vector3(0,0,-1).applyQuaternion(shipGroup.quaternion);
+        c.velocity = fwd.multiplyScalar(15 + Math.random() * 20);
+        c.lifetime = 3 + Math.random() * 2;
+        break;
+      }
+    }
+  }
+}
+
+function updateAurora(state, scene, elements, shipGroup, elapsed, delta, rgb, pct) {
+  const w = state.weather;
+  // Create ribbons if needed
+  if (w.aurora.ribbons.length === 0) {
+    w.aurora.ribbons = createAuroraBands(scene, shipGroup);
+  }
+  // Animate ribbons
+  w.aurora.ribbons.forEach((mesh, i) => {
+    mesh.material.opacity = 0.15 * pct * (0.5 + rgb);
+    const hue = (elapsed * 0.05 + i * 0.15) % 1;
+    mesh.material.color.setHSL(hue, 0.8, 0.5);
+    // Vertex undulation
+    const posAttr = mesh.geometry.attributes.position;
+    for (let v = 0; v < posAttr.count; v++) {
+      const x = posAttr.getX(v);
+      posAttr.setZ(v, Math.sin(elapsed * 0.8 + x * 0.05 + i) * 3);
+    }
+    posAttr.needsUpdate = true;
+    // Check proximity for achievement
+    const dist = shipGroup.position.distanceTo(mesh.position);
+    if (dist < 30) state.achievements.stats.auroraProximity = true;
+  });
+}
+
+function updateIceField(state, scene, elements, shipGroup, elapsed, delta, rgb, pct) {
+  const w = state.weather;
+  const iceCount = { LOW: 10, MEDIUM: 15, HIGH: 20, INSANE: 35 }[state.quality.current] || 20;
+  // Create crystals if needed
+  if (w.iceField.crystals.length === 0) {
+    w.iceField.crystals = createIceCrystals(scene, shipGroup, iceCount);
+  }
+  // Blue tint via fog
+  if (!scene.fog) scene.fog = new THREE.FogExp2(0x001133, 0);
+  if (w.current === 'ICE_FIELD') {
+    scene.fog.density = 0.003 * pct * rgb;
+    scene.fog.color.setHex(0x001133);
+  }
+  // Animate crystals
+  w.iceField.crystals.forEach((mesh, i) => {
+    mesh.material.opacity = 0.6 * pct;
+    mesh.rotation.x += delta * 0.3;
+    mesh.rotation.y += delta * 0.5;
+    mesh.material.emissiveIntensity = 0.3 + 0.2 * Math.sin(elapsed + i);
+  });
+}
+
+function cleanupWeather(w, scene) {
+  // Aurora cleanup
+  if (w.aurora.ribbons.length > 0) {
+    w.aurora.ribbons.forEach(m => { scene.remove(m); m.geometry.dispose(); m.material.dispose(); });
+    w.aurora.ribbons = [];
+  }
+  // Ice cleanup
+  if (w.iceField.crystals.length > 0) {
+    w.iceField.crystals.forEach(m => { scene.remove(m); m.geometry.dispose(); m.material.dispose(); });
+    w.iceField.crystals = [];
+  }
+  // Clear fog
+  if (scene.fog) scene.fog.density = 0;
+}
+
+// ---------------------------------------------------------------------------
+// Multiplayer ghost ships
+// ---------------------------------------------------------------------------
+
+function initMultiplayer(state, scene) {
+  const mp = state.multiplayer;
+  // BroadcastChannel fallback for same-device testing
+  try {
+    mp.fallbackChannel = new BroadcastChannel('danielstevens-space');
+    mp.fallbackChannel.onmessage = (e) => {
+      if (e.data && e.data.peerId !== mp.myId) {
+        handleGhostData(state, scene, e.data);
+      }
+    };
+  } catch (e) { /* BroadcastChannel not supported */ }
+
+  // PeerJS (if available)
+  if (typeof Peer !== 'undefined') {
+    try {
+      mp.peer = new Peer();
+      mp.peer.on('open', (id) => {
+        mp.myId = id;
+        mp.enabled = true;
+      });
+      mp.peer.on('connection', (conn) => {
+        if (mp.connections.length < mp.maxConnections) {
+          setupGhostConnection(conn, state, scene);
+        }
+      });
+      mp.peer.on('error', () => { /* silent degrade */ });
+    } catch (e) { /* PeerJS failed */ }
+  }
+
+  // Generate fallback ID
+  if (!mp.myId) mp.myId = 'local-' + Math.random().toString(36).slice(2, 8);
+}
+
+function setupGhostConnection(conn, state, scene) {
+  state.multiplayer.connections.push(conn);
+  conn.on('data', (data) => handleGhostData(state, scene, data));
+  conn.on('close', () => {
+    state.multiplayer.connections = state.multiplayer.connections.filter(c => c !== conn);
+    removeGhost(state, scene, conn.peer);
+  });
+}
+
+function handleGhostData(state, scene, data) {
+  if (!data || data.peerId === state.multiplayer.myId) return;
+  const mp = state.multiplayer;
+  if (!mp.ghosts.has(data.peerId)) {
+    if (mp.ghosts.size >= mp.maxConnections) return;
+    createGhostShip(state, scene, data.peerId);
+  }
+  const ghost = mp.ghosts.get(data.peerId);
+  if (ghost) {
+    ghost.targetPos.set(data.x, data.y, data.z);
+    ghost.targetRot.set(data.rx, data.ry, data.rz);
+    ghost.speed = data.speed || 0;
+    ghost.boosting = data.boosting || false;
+    ghost.lastUpdate = performance.now();
+  }
+}
+
+function createGhostShip(state, scene, peerId) {
+  const group = new THREE.Group();
+  // Color from peerId hash
+  let hash = 0;
+  for (let i = 0; i < peerId.length; i++) hash = ((hash << 5) - hash + peerId.charCodeAt(i)) | 0;
+  const color = new THREE.Color().setHSL(Math.abs(hash % 360) / 360, 0.8, 0.6);
+
+  // Wireframe ship (triangle shape)
+  const shipGeo = new THREE.ConeGeometry(2, 6, 3);
+  const shipMat = new THREE.MeshBasicMaterial({ color, wireframe: true, transparent: true, opacity: 0.6 });
+  const shipMesh = new THREE.Mesh(shipGeo, shipMat);
+  shipMesh.rotation.x = Math.PI / 2;
+  group.add(shipMesh);
+
+  // Trail
+  const trailCount = 50;
+  const trailPos = new Float32Array(trailCount * 3);
+  const trailGeo = new THREE.BufferGeometry();
+  trailGeo.setAttribute('position', new THREE.BufferAttribute(trailPos, 3));
+  const trailMat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.3 });
+  const trailMesh = new THREE.Line(trailGeo, trailMat);
+  scene.add(trailMesh);
+
+  scene.add(group);
+  state.multiplayer.ghosts.set(peerId, {
+    group, shipMesh, trail: { mesh: trailMesh, positions: trailPos, head: 0, count: trailCount },
+    targetPos: new THREE.Vector3(), targetRot: new THREE.Euler(),
+    speed: 0, boosting: false, lastUpdate: performance.now(),
+  });
+}
+
+function removeGhost(state, scene, peerId) {
+  const ghost = state.multiplayer.ghosts.get(peerId);
+  if (!ghost) return;
+  scene.remove(ghost.group);
+  ghost.group.children.forEach(c => { if (c.geometry) c.geometry.dispose(); if (c.material) c.material.dispose(); });
+  scene.remove(ghost.trail.mesh);
+  ghost.trail.mesh.geometry.dispose();
+  ghost.trail.mesh.material.dispose();
+  state.multiplayer.ghosts.delete(peerId);
+}
+
+function broadcastPosition(state, shipGroup, physics) {
+  const mp = state.multiplayer;
+  const packet = {
+    peerId: mp.myId,
+    x: shipGroup.position.x, y: shipGroup.position.y, z: shipGroup.position.z,
+    rx: shipGroup.rotation.x, ry: shipGroup.rotation.y, rz: shipGroup.rotation.z,
+    speed: physics.speed, boosting: physics.speed > physics.maxSpeed * 0.8,
+  };
+  if (mp.fallbackChannel) {
+    try { mp.fallbackChannel.postMessage(packet); } catch (e) { /* silent */ }
+  }
+  mp.connections.forEach(conn => {
+    try { conn.send(packet); } catch (e) { /* silent */ }
+  });
+}
+
+function updateGhostShips(state, scene, elapsed, delta) {
+  const mp = state.multiplayer;
+  const now = performance.now();
+  const staleThreshold = 5000;
+
+  mp.ghosts.forEach((ghost, peerId) => {
+    // Remove stale ghosts
+    if (now - ghost.lastUpdate > staleThreshold) {
+      removeGhost(state, scene, peerId);
+      return;
+    }
+    // Interpolate position and rotation
+    ghost.group.position.lerp(ghost.targetPos, 0.15);
+    ghost.group.rotation.x += (ghost.targetRot.x - ghost.group.rotation.x) * 0.15;
+    ghost.group.rotation.y += (ghost.targetRot.y - ghost.group.rotation.y) * 0.15;
+    ghost.group.rotation.z += (ghost.targetRot.z - ghost.group.rotation.z) * 0.15;
+    // Update trail
+    const t = ghost.trail;
+    const hi = t.head * 3;
+    t.positions[hi] = ghost.group.position.x;
+    t.positions[hi + 1] = ghost.group.position.y;
+    t.positions[hi + 2] = ghost.group.position.z;
+    t.head = (t.head + 1) % t.count;
+    t.mesh.geometry.attributes.position.needsUpdate = true;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Beam weapon
+// ---------------------------------------------------------------------------
+
+function fireBeamWeapon(shipGroup, physics, asteroids, elements, scene, state, elapsed, rgb) {
+  const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(shipGroup.quaternion);
+  const origin = shipGroup.position.clone();
+  const raycaster = new THREE.Raycaster(origin, fwd, 0, 150);
+  let hits = 0;
+
+  if (asteroids) {
+    asteroids.meshes.forEach((m) => {
+      const toAsteroid = m.position.clone().sub(origin);
+      const projDist = toAsteroid.dot(fwd);
+      if (projDist > 0 && projDist < 150) {
+        const perpDist = toAsteroid.clone().sub(fwd.clone().multiplyScalar(projDist)).length();
+        if (perpDist < 4) {
+          triggerExplosion(elements.explosions, m.position.clone(), rgb);
+          triggerShockwave(elements.shockwaves, m.position.clone(), elapsed);
+          const theta = Math.random() * Math.PI * 2;
+          const phi = Math.acos(2 * Math.random() - 1);
+          const r = 80 + Math.random() * 70;
+          m.position.set(
+            shipGroup.position.x + r * Math.sin(phi) * Math.cos(theta),
+            shipGroup.position.y + r * Math.sin(phi) * Math.sin(theta),
+            shipGroup.position.z + r * Math.cos(phi)
+          );
+          hits++;
+        }
+      }
+    });
+  }
+  state.achievements.stats.kills += hits;
+
+  // Visual beam line
+  const endPoint = origin.clone().add(fwd.clone().multiplyScalar(150));
+  const beamGeo = new THREE.BufferGeometry().setFromPoints([origin, endPoint]);
+  const beamMat = new THREE.LineBasicMaterial({ color: 0xff0044, transparent: true, opacity: 0.8 * rgb });
+  const beamLine = new THREE.Line(beamGeo, beamMat);
+  scene.add(beamLine);
+  setTimeout(() => { scene.remove(beamLine); beamGeo.dispose(); beamMat.dispose(); }, 150);
+
+  triggerExplosionSound(elements.sound);
+  if (hits > 0) showActionText('BEAM: ' + hits + ' DESTROYED!');
+  return hits;
+}
+
+// ---------------------------------------------------------------------------
 // HUD
 // ---------------------------------------------------------------------------
 
@@ -4419,13 +5118,21 @@ function showFlightHUD() {
   if (empHud) empHud.style.display = 'block';
   const whHud = document.getElementById('wormhole-cooldown-hud');
   if (whHud) whHud.style.display = 'block';
+  const qualityHud = document.getElementById('quality-hud');
+  if (qualityHud) qualityHud.style.display = 'block';
+  const fpsCounter = document.getElementById('fps-counter');
+  if (fpsCounter) fpsCounter.style.display = 'block';
+  const weatherHud = document.getElementById('weather-hud');
+  if (weatherHud) weatherHud.style.display = 'block';
+  const playersHud = document.getElementById('players-hud');
+  if (playersHud) playersHud.style.display = 'block';
 }
 
 // ---------------------------------------------------------------------------
 // Main animation loop
 // ---------------------------------------------------------------------------
 
-function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, input, state, lights, rgbState) {
+function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, input, state, lights, rgbState, scene, renderer) {
   const clock = new THREE.Clock();
 
   function animate() {
@@ -4505,11 +5212,27 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
         }
       }
 
-      // Missile fire (F key)
+      // Missile fire (F key) — weapon type determines behavior
       if (input.fireRequested) {
         input.fireRequested = false;
-        fireMissile(elements.missiles, shipGroup, physics, elements.asteroids);
-        triggerMissileSound(elements.sound);
+        if (state.customization.weapon === 'beam') {
+          fireBeamWeapon(shipGroup, physics, elements.asteroids, elements, scene, state, elapsed, rgb);
+        } else if (state.customization.weapon === 'scatter') {
+          // Fire 3 missiles at angles
+          for (let si = -1; si <= 1; si++) {
+            fireMissile(elements.missiles, shipGroup, physics, elements.asteroids, si * 0.26);
+          }
+          triggerMissileSound(elements.sound);
+        } else {
+          fireMissile(elements.missiles, shipGroup, physics, elements.asteroids);
+          triggerMissileSound(elements.sound);
+        }
+      }
+
+      // TAB — customization panel
+      if (input.tabRequested) {
+        input.tabRequested = false;
+        toggleCustomizationPanel(state);
       }
 
       // Suppress turning during roll/flip
@@ -4766,7 +5489,7 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
       }
 
       // Engine sound update
-      updateEngineSound(elements.sound, physics, rgb);
+      updateEngineSound(elements.sound, physics, rgb, state.customization.engineFreqMult);
 
       // Procedural music
       updateProceduralMusic(elements.music, elements.sound, physics, state, rgb, delta);
@@ -4796,10 +5519,82 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
         whHud.style.color = state.wormhole.cooldown > 0 ? 'rgba(100,100,100,0.6)' : 'rgba(136,0,255,0.8)';
       }
 
+      // Weather system
+      updateWeather(state, scene, elements, shipGroup, physics, elapsed, delta, rgb, camera);
+
+      // Multiplayer — broadcast position at 10Hz
+      state.multiplayer.broadcastTimer -= delta;
+      if (state.multiplayer.broadcastTimer <= 0) {
+        state.multiplayer.broadcastTimer = state.multiplayer.broadcastInterval;
+        broadcastPosition(state, shipGroup, physics);
+      }
+      updateGhostShips(state, scene, elapsed, delta);
+
+      // Players HUD
+      const playersHud = document.getElementById('players-hud');
+      if (playersHud) playersHud.textContent = 'PLAYERS: ' + (1 + state.multiplayer.ghosts.size);
+
+      // Apply customization on change
+      if (state.customization._dirty) {
+        applyEngineCustomization(state, elements);
+        applyShieldCustomization(state, elements, shipGroup);
+        state.customization._dirty = false;
+      }
+
+      // Save achievements on unlock
+      if (state.achievements._savePending) {
+        saveAchievements(state);
+        state.achievements._savePending = false;
+      }
+
       // Minimap (update every 2nd frame for performance)
       if (elements.minimapCtx && ++state.minimapFrame % 2 === 0) {
         updateMinimap(elements.minimapCtx, shipGroup, elements.bookGroup, elements.asteroids, elements.nebulae, elements.blackHole, elements.whale, elements.comets, elapsed, elements.wormhole, state);
       }
+
+      // Ghost blips on minimap
+      if (elements.minimapCtx && state.multiplayer.ghosts.size > 0) {
+        const mCtx = elements.minimapCtx;
+        const mcx = 75, mcy = 75, mScale = 75 / 150;
+        state.multiplayer.ghosts.forEach((ghost) => {
+          const dx = (ghost.group.position.x - shipGroup.position.x) * mScale;
+          const dz = (ghost.group.position.z - shipGroup.position.z) * mScale;
+          if (Math.abs(dx) < 72 && Math.abs(dz) < 72) {
+            mCtx.fillStyle = 'rgba(255,255,255,0.8)';
+            mCtx.beginPath();
+            mCtx.arc(mcx + dx, mcy + dz, 2, 0, Math.PI * 2);
+            mCtx.fill();
+          }
+        });
+      }
+    }
+
+    // ---- FPS counter & auto-downgrade ----
+    state.quality.fpsHistory.push(performance.now());
+    while (state.quality.fpsHistory.length > 0 && state.quality.fpsHistory[0] < performance.now() - 1000) {
+      state.quality.fpsHistory.shift();
+    }
+    const currentFps = state.quality.fpsHistory.length;
+    if (performance.now() - (state.quality.lastFpsUpdate || 0) > 500) {
+      state.quality.fpsDisplay = currentFps;
+      state.quality.lastFpsUpdate = performance.now();
+      const fpsEl = document.getElementById('fps-counter');
+      if (fpsEl) fpsEl.textContent = 'FPS: ' + currentFps;
+    }
+    // Auto-downgrade if FPS consistently low
+    if (currentFps < 25 && currentFps > 0) {
+      state.quality.lowFpsTimer += delta;
+      if (state.quality.lowFpsTimer > 3) {
+        state.quality.lowFpsTimer = 0;
+        const tiers = ['LOW', 'MEDIUM', 'HIGH', 'INSANE'];
+        const idx = tiers.indexOf(state.quality.current);
+        if (idx > 0) {
+          applyQualityPreset(tiers[idx - 1], state, elements, scene, renderer);
+          showActionText('PERFORMANCE ADJUSTED: ' + tiers[idx - 1]);
+        }
+      }
+    } else {
+      state.quality.lowFpsTimer = 0;
     }
 
     // ---- Always-on animations ----
