@@ -936,3 +936,121 @@ describe('scene.js new achievements round 5', () => {
     assert.match(showFn[0], /emp-cooldown-hud/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Procedural Background Music
+// ---------------------------------------------------------------------------
+
+describe('scene.js procedural background music', () => {
+  it('has createProceduralMusic function', () => {
+    assert.match(scene, /function createProceduralMusic/);
+  });
+
+  it('creates oscillators/buffers and gain nodes', () => {
+    assert.match(scene, /kickBuffer/);
+    assert.match(scene, /hatBuffer/);
+    assert.match(scene, /kickGain/);
+    assert.match(scene, /arpGain/);
+    assert.match(scene, /padGain/);
+    assert.match(scene, /combatGain/);
+  });
+
+  it('has updateProceduralMusic function', () => {
+    assert.match(scene, /function updateProceduralMusic/);
+  });
+
+  it('BPM calculation scales with speed', () => {
+    assert.match(scene, /60 \+ \(physics\.speed \/ physics\.maxSpeed\) \* 80/);
+  });
+
+  it('has lookahead beat scheduling pattern', () => {
+    assert.match(scene, /nextBeatTime < ctx\.currentTime \+ 0\.1/);
+  });
+
+  it('layer gain updates reference rgb', () => {
+    assert.match(scene, /rgb \* 0\.08/);
+    assert.match(scene, /rgb \* 0\.12/);
+    assert.match(scene, /rgb \* 0\.1/);
+    assert.match(scene, /rgb \* 0\.06/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Wormhole Portal
+// ---------------------------------------------------------------------------
+
+describe('scene.js wormhole portal', () => {
+  it('has DimensionShiftShader with required uniforms', () => {
+    assert.match(scene, /DimensionShiftShader/);
+    assert.match(scene, /shiftAmount/);
+    assert.match(scene, /rgb2hsv/);
+    assert.match(scene, /hsv2rgb/);
+  });
+
+  it('has createWormhole function', () => {
+    assert.match(scene, /function createWormhole/);
+  });
+
+  it('creates TorusGeometry ring and particle spiral', () => {
+    assert.match(scene, /TorusGeometry\(6/);
+    assert.match(scene, /particleCount = 200/);
+  });
+
+  it('has updateWormhole function with proximity check', () => {
+    assert.match(scene, /function updateWormhole/);
+    assert.match(scene, /dist < 8/);
+  });
+
+  it('has triggerDimensionShift function', () => {
+    assert.match(scene, /function triggerDimensionShift/);
+  });
+
+  it('sets inAlternateDimension state and spawns exit wormhole', () => {
+    assert.match(scene, /inAlternateDimension/);
+    assert.match(scene, /createExitWormhole/);
+    assert.match(scene, /DIMENSION SHIFT!/);
+    assert.match(scene, /RETURNING TO REALITY!/);
+  });
+
+  it('has createWormholeSound and updateWormholeSound functions', () => {
+    assert.match(scene, /function createWormholeSound/);
+    assert.match(scene, /function updateWormholeSound/);
+  });
+
+  it('has DIMENSION HOPPER achievement', () => {
+    assert.match(scene, /DIMENSION HOPPER/);
+    assert.match(scene, /dimensionShifts/);
+  });
+
+  it('minimap accepts wormhole parameter', () => {
+    assert.match(scene, /updateMinimap\([^)]*wormhole/);
+  });
+
+  it('DimensionShiftPass added to composer pipeline', () => {
+    assert.match(scene, /dimensionShiftPass/);
+    assert.match(scene, /DimensionShiftShader/);
+  });
+
+  it('has wormhole cooldown HUD in HTML', () => {
+    assert.match(html, /wormhole-cooldown-hud/);
+  });
+
+  it('wormhole cooldown HUD excluded from beginTransformation', () => {
+    assert.match(scene, /wormhole-cooldown-hud/);
+  });
+
+  it('has wormhole cooldown HUD shown in showFlightHUD', () => {
+    const showFn = scene.match(/function showFlightHUD[\s\S]*?^}/m);
+    assert.ok(showFn, 'showFlightHUD function exists');
+    assert.match(showFn[0], /wormhole-cooldown-hud/);
+  });
+
+  it('flight HUD mentions wormholes', () => {
+    assert.match(html, /fly through wormholes/);
+  });
+
+  it('gravity multiplied by wormhole gravityMult', () => {
+    assert.match(scene, /gravMult/);
+    assert.match(scene, /state\.wormhole.*gravityMult|wormhole\.gravityMult/);
+  });
+});

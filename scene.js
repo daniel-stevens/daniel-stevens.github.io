@@ -132,6 +132,47 @@ const ScreenCrackShader = {
     }`,
 };
 
+const DimensionShiftShader = {
+  uniforms: {
+    tDiffuse: { value: null },
+    shiftAmount: { value: 0.0 },
+    time: { value: 0.0 },
+  },
+  vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+  fragmentShader: `
+    uniform sampler2D tDiffuse;
+    uniform float shiftAmount;
+    uniform float time;
+    varying vec2 vUv;
+    vec3 rgb2hsv(vec3 c) {
+      vec4 K = vec4(0.0, -1.0/3.0, 2.0/3.0, -1.0);
+      vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
+      vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));
+      float d = q.x - min(q.w, q.y);
+      float e = 1.0e-10;
+      return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
+    }
+    vec3 hsv2rgb(vec3 c) {
+      vec4 K = vec4(1.0, 2.0/3.0, 1.0/3.0, 3.0);
+      vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+      return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+    }
+    void main() {
+      vec4 color = texture2D(tDiffuse, vUv);
+      if (shiftAmount <= 0.001) { gl_FragColor = color; return; }
+      vec3 hsv = rgb2hsv(color.rgb);
+      hsv.x = fract(hsv.x + shiftAmount * 0.333 + sin(time * 0.5) * 0.05 * shiftAmount);
+      hsv.y = min(1.0, hsv.y + shiftAmount * 0.3);
+      vec3 shifted = hsv2rgb(hsv);
+      float levels = 3.0 + shiftAmount * 5.0;
+      shifted = floor(shifted * levels) / levels;
+      float vignette = length(vUv - vec2(0.5)) * 2.0;
+      float vignetteStr = smoothstep(0.5, 1.0, shiftAmount) * vignette * 0.4;
+      shifted += vec3(0.3, 0.05, 0.5) * vignetteStr;
+      gl_FragColor = vec4(shifted, color.a);
+    }`,
+};
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -196,6 +237,7 @@ const ACHIEVEMENTS = [
   { id: 'storm_survivor', name: 'STORM SURVIVOR', desc: 'Survive a comet storm without damage', check: s => (s.stormsSurvivedClean || 0) >= 1 },
   { id: 'extinction_event', name: 'EXTINCTION EVENT', desc: 'Destroy 5+ objects with single EMP', check: s => (s.maxEMPKills || 0) >= 5 },
   { id: 'space_whisperer', name: 'SPACE WHISPERER', desc: 'Get within 10 units of the space whale', check: s => s.whaleProximity },
+  { id: 'dimension_hopper', name: 'DIMENSION HOPPER', desc: 'Enter alternate dimension', check: s => (s.dimensionShifts || 0) >= 1 },
 ];
 
 const isMobile = window.innerWidth < 768;
@@ -266,7 +308,7 @@ function beginTransformation() {
     document.body.appendChild(canvas);
 
     Array.from(document.body.children).forEach((el) => {
-      if (el.id !== 'threejs-canvas' && el.id !== 'flight-hud' && el.id !== 'speed-hud' && el.id !== 'minimap' && el.id !== 'action-text' && el.id !== 'rgb-slider-hud' && el.id !== 'health-bar-hud' && el.id !== 'achievement-container' && el.id !== 'jump-cooldown-hud' && el.id !== 'emp-cooldown-hud' && el.tagName !== 'SCRIPT' && el.tagName !== 'STYLE') {
+      if (el.id !== 'threejs-canvas' && el.id !== 'flight-hud' && el.id !== 'speed-hud' && el.id !== 'minimap' && el.id !== 'action-text' && el.id !== 'rgb-slider-hud' && el.id !== 'health-bar-hud' && el.id !== 'achievement-container' && el.id !== 'jump-cooldown-hud' && el.id !== 'emp-cooldown-hud' && el.id !== 'wormhole-cooldown-hud' && el.tagName !== 'SCRIPT' && el.tagName !== 'STYLE') {
         el.style.display = 'none';
       }
     });
@@ -498,6 +540,9 @@ function initThreeScene(canvas) {
   const whale = createSpaceWhale(scene);
   const whaleSong = createWhaleSong(sound);
   const comets = createCometPool(scene);
+  const music = createProceduralMusic(sound);
+  const wormhole = createWormhole(scene);
+  const wormholeSound = createWormholeSound(sound);
 
   const elements = {
     stars, ambient, titleMesh: null, tagMeshes: [], linkMeshes: [],
@@ -506,7 +551,9 @@ function initThreeScene(canvas) {
     asteroids, nebulae, shield, contrailL, contrailR, warpTunnel,
     shockwaves, missiles, explosions, sound, lightning, blackHole, drone,
     whale, whaleSong, comets, empMeshes: null,
-    bloomPass: null, chromaPass: null, motionBlurPass: null, lensingPass: null, crackPass: null,
+    music, wormhole, wormholeSound,
+    music: null, wormhole: null, wormholeSound: null,
+    bloomPass: null, chromaPass: null, motionBlurPass: null, lensingPass: null, crackPass: null, dimensionShiftPass: null,
   };
 
   // Post-processing
@@ -530,11 +577,14 @@ function initThreeScene(canvas) {
     composer.addPass(lensingPass);
     const crackPass = new ShaderPass(ScreenCrackShader);
     composer.addPass(crackPass);
+    const dimensionShiftPass = new ShaderPass(DimensionShiftShader);
+    composer.addPass(dimensionShiftPass);
     composer.addPass(new OutputPass());
     elements.chromaPass = chromaPass;
     elements.motionBlurPass = motionBlurPass;
     elements.lensingPass = lensingPass;
     elements.crackPass = crackPass;
+    elements.dimensionShiftPass = dimensionShiftPass;
     renderFn = () => composer.render();
   } catch (e) {
     console.warn('Post-processing failed, using basic renderer:', e);
@@ -575,7 +625,7 @@ function initThreeScene(canvas) {
       dead: false, respawnTimer: 0,
     },
     achievements: {
-      stats: { kills: 0, distanceTraveled: 0, maxSpeedReached: 0, barrelRolls: 0, flips: 0, sonicBooms: 0, maxCombo: 0, timeSinceLastDamage: 0, hyperspaceJumps: 0, cometsDestroyed: 0, empBlasts: 0, maxEMPKills: 0, stormsSurvivedClean: 0, whaleProximity: false },
+      stats: { kills: 0, distanceTraveled: 0, maxSpeedReached: 0, barrelRolls: 0, flips: 0, sonicBooms: 0, maxCombo: 0, timeSinceLastDamage: 0, hyperspaceJumps: 0, cometsDestroyed: 0, empBlasts: 0, maxEMPKills: 0, stormsSurvivedClean: 0, whaleProximity: false, dimensionShifts: 0 },
       unlocked: new Set(), popupQueue: [], activePopup: null, popupTimer: 0,
     },
     prevShipPosition: null,
@@ -592,6 +642,13 @@ function initThreeScene(canvas) {
       maxCharge: 2.0, cooldownTime: 20.0,
       blastActive: false, blastRadius: 0, blastMaxRadius: 60,
       timeScale: 1.0,
+    },
+    wormhole: {
+      inAlternateDimension: false,
+      shiftAmount: 0,
+      shiftTarget: 0,
+      cooldown: 0,
+      gravityMult: 1.0,
     },
   };
   startAnimationLoop(renderFn, elements, camera, shipGroup, physics, input, state, lights, rgbState);
@@ -1931,7 +1988,7 @@ function createBlackHole(scene) {
   };
 }
 
-function updateBlackHole(blackHole, shipGroup, physics, asteroids, camera, elapsed, delta, rgb, lensingPass) {
+function updateBlackHole(blackHole, shipGroup, physics, asteroids, camera, elapsed, delta, rgb, lensingPass, state) {
   const bhPos = blackHole.group.position;
 
   // Disk rotation
@@ -1951,12 +2008,13 @@ function updateBlackHole(blackHole, shipGroup, physics, asteroids, camera, elaps
   }
 
   // Gravity pull on asteroids
+  const gravMult = (state && state.wormhole) ? state.wormhole.gravityMult : 1.0;
   if (asteroids) {
     asteroids.meshes.forEach((m) => {
       const dir = new THREE.Vector3().subVectors(bhPos, m.position);
       const dist = dir.length();
       if (dist < blackHole.gravityRadius && dist > blackHole.eventHorizonRadius) {
-        const force = blackHole.pullStrength / (dist * dist) * delta;
+        const force = blackHole.pullStrength * gravMult / (dist * dist) * delta;
         m.position.addScaledVector(dir.normalize(), force);
       }
     });
@@ -1965,7 +2023,7 @@ function updateBlackHole(blackHole, shipGroup, physics, asteroids, camera, elaps
   // Gravity pull on ship (subtle)
   if (distToShip < blackHole.gravityRadius) {
     const pullDir = new THREE.Vector3().subVectors(bhPos, shipGroup.position).normalize();
-    const pullMag = blackHole.pullStrength * 0.3 / Math.max(distToShip * distToShip, 1) * delta;
+    const pullMag = blackHole.pullStrength * 0.3 * gravMult / Math.max(distToShip * distToShip, 1) * delta;
     physics.velocity.addScaledVector(pullDir, pullMag);
   }
 
@@ -2724,7 +2782,7 @@ function initMinimap() {
   return canvas.getContext('2d');
 }
 
-function updateMinimap(ctx, shipGroup, bookGroup, asteroids, nebulae, blackHole, whale, comets, elapsed) {
+function updateMinimap(ctx, shipGroup, bookGroup, asteroids, nebulae, blackHole, whale, comets, elapsed, wormhole, state) {
   const w = ctx.canvas.width;
   const h = ctx.canvas.height;
   const cx = w / 2;
@@ -2958,6 +3016,55 @@ function updateMinimap(ctx, shipGroup, bookGroup, asteroids, nebulae, blackHole,
       ctx.arc(sx, sy, 2, 0, Math.PI * 2);
       ctx.fill();
     });
+  }
+
+  // Wormhole blips — purple (entry) / cyan (exit)
+  if (wormhole) {
+    const inAlt = state && state.wormhole && state.wormhole.inAlternateDimension;
+    // Entry wormhole (visible when not in alternate dimension)
+    if (!inAlt && wormhole.active && wormhole.group.visible) {
+      const dx = wormhole.group.position.x - shipGroup.position.x;
+      const dz = wormhole.group.position.z - shipGroup.position.z;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      if (dist < radarRange) {
+        const localX = dx * cosY - dz * sinY;
+        const localZ = dx * sinY + dz * cosY;
+        const sx = cx + localX * scale;
+        const sy = cy - localZ * scale;
+        // Rotating ring indicator
+        ctx.strokeStyle = 'rgba(136, 0, 255, 0.8)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(sx, sy, 5, elapsed % (Math.PI * 2), elapsed % (Math.PI * 2) + Math.PI * 1.5);
+        ctx.stroke();
+        // Filled center
+        ctx.fillStyle = 'rgba(136, 0, 255, 0.6)';
+        ctx.beginPath();
+        ctx.arc(sx, sy, 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    // Exit wormhole (visible in alternate dimension)
+    if (inAlt && wormhole.exitWormhole) {
+      const dx = wormhole.exitWormhole.group.position.x - shipGroup.position.x;
+      const dz = wormhole.exitWormhole.group.position.z - shipGroup.position.z;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      if (dist < radarRange) {
+        const localX = dx * cosY - dz * sinY;
+        const localZ = dx * sinY + dz * cosY;
+        const sx = cx + localX * scale;
+        const sy = cy - localZ * scale;
+        ctx.strokeStyle = 'rgba(0, 255, 204, 0.8)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(sx, sy, 5, elapsed % (Math.PI * 2), elapsed % (Math.PI * 2) + Math.PI * 1.5);
+        ctx.stroke();
+        ctx.fillStyle = 'rgba(0, 255, 204, 0.6)';
+        ctx.beginPath();
+        ctx.arc(sx, sy, 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
   }
 
   // Ship indicator — green triangle pointing up (forward)
@@ -3422,6 +3529,142 @@ function updateWhaleSong(song, distance, maxRange, rgb) {
 }
 
 // ---------------------------------------------------------------------------
+// Procedural Background Music
+// ---------------------------------------------------------------------------
+
+function createProceduralMusic(sound) {
+  if (!sound || !sound.ctx) return null;
+  const ctx = sound.ctx;
+
+  // Pre-render kick buffer (60Hz sine, 0.1s exponential decay)
+  const kickLen = Math.floor(ctx.sampleRate * 0.1);
+  const kickBuffer = ctx.createBuffer(1, kickLen, ctx.sampleRate);
+  const kickData = kickBuffer.getChannelData(0);
+  for (let i = 0; i < kickLen; i++) {
+    const t = i / ctx.sampleRate;
+    kickData[i] = Math.sin(2 * Math.PI * 60 * t) * Math.exp(-t * 30);
+  }
+
+  // Pre-render hi-hat buffer (white noise 0.05s, bandpass 8000Hz baked in via spectral shaping)
+  const hatLen = Math.floor(ctx.sampleRate * 0.05);
+  const hatBuffer = ctx.createBuffer(1, hatLen, ctx.sampleRate);
+  const hatData = hatBuffer.getChannelData(0);
+  for (let i = 0; i < hatLen; i++) {
+    hatData[i] = (Math.random() * 2 - 1) * Math.exp(-i / hatLen * 4);
+  }
+
+  // Layer gain nodes
+  const kickGain = ctx.createGain(); kickGain.gain.value = 0; kickGain.connect(sound.masterGain);
+  const arpGain = ctx.createGain(); arpGain.gain.value = 0; arpGain.connect(sound.masterGain);
+  const hatGain = ctx.createGain(); hatGain.gain.value = 0;
+  const hatFilter = ctx.createBiquadFilter();
+  hatFilter.type = 'bandpass'; hatFilter.frequency.value = 8000; hatFilter.Q.value = 1;
+  hatGain.connect(hatFilter); hatFilter.connect(sound.masterGain);
+  const padGain = ctx.createGain(); padGain.gain.value = 0;
+  const padFilter = ctx.createBiquadFilter();
+  padFilter.type = 'lowpass'; padFilter.frequency.value = 400;
+  padGain.connect(padFilter); padFilter.connect(sound.masterGain);
+  const combatGain = ctx.createGain(); combatGain.gain.value = 0;
+  const combatFilter = ctx.createBiquadFilter();
+  combatFilter.type = 'bandpass'; combatFilter.frequency.value = 300; combatFilter.Q.value = 2;
+  combatGain.connect(combatFilter); combatFilter.connect(sound.masterGain);
+
+  // Ambient pad — two detuned triangle oscillators (always running)
+  const padOsc1 = ctx.createOscillator(); padOsc1.type = 'triangle'; padOsc1.frequency.value = 220;
+  const padOsc2 = ctx.createOscillator(); padOsc2.type = 'triangle'; padOsc2.frequency.value = 221.5;
+  padOsc1.connect(padGain); padOsc2.connect(padGain);
+  padOsc1.start(); padOsc2.start();
+
+  // Combat layer — sawtooth 110Hz through waveshaper distortion
+  const combatOsc = ctx.createOscillator(); combatOsc.type = 'sawtooth'; combatOsc.frequency.value = 110;
+  const waveshaper = ctx.createWaveShaper();
+  const curve = new Float32Array(256);
+  for (let i = 0; i < 256; i++) {
+    const x = (i / 128) - 1;
+    curve[i] = (Math.PI + x) * x / (Math.PI + Math.abs(x));
+  }
+  waveshaper.curve = curve;
+  combatOsc.connect(waveshaper); waveshaper.connect(combatGain);
+  combatOsc.start();
+
+  // Arp filter (shared for scheduled notes)
+  const arpFilter = ctx.createBiquadFilter();
+  arpFilter.type = 'lowpass'; arpFilter.frequency.value = 800;
+  arpFilter.connect(arpGain);
+
+  return {
+    layers: { kickGain, arpGain, hatGain, padGain, combatGain, arpFilter },
+    kickBuffer, hatBuffer,
+    nextBeatTime: ctx.currentTime,
+    bpm: 60, beatCount: 0,
+    scale: [261.6, 293.7, 329.6, 392.0, 440.0],
+    active: true,
+  };
+}
+
+function updateProceduralMusic(music, sound, physics, state, rgb, delta) {
+  if (!music || !sound || sound.ctx.state !== 'running') return;
+  const ctx = sound.ctx;
+
+  // BPM scales with speed
+  music.bpm = Math.max(60, Math.min(140, 60 + (physics.speed / physics.maxSpeed) * 80));
+  const beatInterval = 60 / music.bpm;
+  const sixteenth = beatInterval / 4;
+
+  // Lookahead scheduling
+  while (music.nextBeatTime < ctx.currentTime + 0.1) {
+    const beatInBar = music.beatCount % 16; // 16 sixteenth notes per bar
+
+    // Kick on every beat (every 4 sixteenths)
+    if (beatInBar % 4 === 0) {
+      const kick = ctx.createBufferSource();
+      kick.buffer = music.kickBuffer;
+      kick.connect(music.layers.kickGain);
+      kick.start(music.nextBeatTime);
+    }
+
+    // Arp on every sixteenth, cycling pentatonic scale
+    const noteIdx = music.beatCount % music.scale.length;
+    const osc = ctx.createOscillator();
+    osc.type = 'square';
+    osc.frequency.value = music.scale[noteIdx];
+    const noteGain = ctx.createGain();
+    noteGain.gain.setValueAtTime(0.08, music.nextBeatTime);
+    noteGain.gain.exponentialRampToValueAtTime(0.001, music.nextBeatTime + sixteenth * 0.8);
+    osc.connect(noteGain);
+    noteGain.connect(music.layers.arpFilter);
+    osc.start(music.nextBeatTime);
+    osc.stop(music.nextBeatTime + sixteenth);
+
+    // Hi-hat on off-beats (every other 8th = sixteenths 2, 6, 10, 14)
+    if (beatInBar % 4 === 2) {
+      const hat = ctx.createBufferSource();
+      hat.buffer = music.hatBuffer;
+      hat.connect(music.layers.hatGain);
+      hat.start(music.nextBeatTime);
+    }
+
+    music.nextBeatTime += sixteenth;
+    music.beatCount++;
+  }
+
+  // Smooth layer gain updates
+  const layers = music.layers;
+  const padTarget = rgb * 0.08;
+  const kickTarget = rgb * 0.12;
+  const arpTarget = rgb * 0.1 * Math.min(1, physics.speed / 15);
+  const hatTarget = rgb * 0.06;
+  const combatTarget = state.cometStorm.active ? rgb * 0.1 : 0;
+
+  const lerpRate = 1 - Math.pow(0.05, delta);
+  layers.padGain.gain.value += (padTarget - layers.padGain.gain.value) * lerpRate;
+  layers.kickGain.gain.value += (kickTarget - layers.kickGain.gain.value) * lerpRate;
+  layers.arpGain.gain.value += (arpTarget - layers.arpGain.gain.value) * lerpRate;
+  layers.hatGain.gain.value += (hatTarget - layers.hatGain.gain.value) * lerpRate;
+  layers.combatGain.gain.value += (combatTarget - layers.combatGain.gain.value) * lerpRate;
+}
+
+// ---------------------------------------------------------------------------
 // Comet Storms
 // ---------------------------------------------------------------------------
 
@@ -3851,6 +4094,305 @@ function triggerJumpSound(sound) {
 }
 
 // ---------------------------------------------------------------------------
+// Wormhole Portal
+// ---------------------------------------------------------------------------
+
+function createWormhole(scene) {
+  const group = new THREE.Group();
+
+  // Torus ring
+  const ringGeo = new THREE.TorusGeometry(6, 0.8, 16, 64);
+  const ringMat = new THREE.MeshBasicMaterial({
+    color: 0x8800ff, transparent: true, opacity: 0.8,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  });
+  const ringMesh = new THREE.Mesh(ringGeo, ringMat);
+  group.add(ringMesh);
+
+  // Inner glow sphere
+  const glowGeo = new THREE.SphereGeometry(5, 16, 16);
+  const glowMat = new THREE.MeshBasicMaterial({
+    color: 0x8800ff, transparent: true, opacity: 0.3,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  });
+  const innerGlow = new THREE.Mesh(glowGeo, glowMat);
+  group.add(innerGlow);
+
+  // 200 spiral particles orbiting the torus
+  const particleCount = 200;
+  const particleGeo = new THREE.BufferGeometry();
+  const particlePos = new Float32Array(particleCount * 3);
+  particleGeo.setAttribute('position', new THREE.BufferAttribute(particlePos, 3));
+  const particleMat = new THREE.PointsMaterial({
+    size: 0.3, color: 0xffffff, transparent: true, opacity: 0.7,
+    blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true,
+  });
+  const particles = new THREE.Points(particleGeo, particleMat);
+  group.add(particles);
+
+  // Position 80-120 units from origin in random direction
+  const theta = Math.random() * Math.PI * 2;
+  const phi = Math.acos(2 * Math.random() - 1);
+  const r = 80 + Math.random() * 40;
+  group.position.set(r * Math.sin(phi) * Math.cos(theta), r * Math.sin(phi) * Math.sin(theta), r * Math.cos(phi));
+
+  scene.add(group);
+  return { group, ringMesh, particles: { mesh: particles, positions: particlePos, count: particleCount }, innerGlow, active: true, exitWormhole: null };
+}
+
+function createExitWormhole(scene, shipGroup) {
+  const group = new THREE.Group();
+
+  const ringGeo = new THREE.TorusGeometry(6, 0.8, 16, 64);
+  const ringMat = new THREE.MeshBasicMaterial({
+    color: 0x00ffcc, transparent: true, opacity: 0.8,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  });
+  const ringMesh = new THREE.Mesh(ringGeo, ringMat);
+  group.add(ringMesh);
+
+  const glowGeo = new THREE.SphereGeometry(5, 16, 16);
+  const glowMat = new THREE.MeshBasicMaterial({
+    color: 0x00ffcc, transparent: true, opacity: 0.3,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  });
+  const innerGlow = new THREE.Mesh(glowGeo, glowMat);
+  group.add(innerGlow);
+
+  const particleCount = 200;
+  const particleGeo = new THREE.BufferGeometry();
+  const particlePos = new Float32Array(particleCount * 3);
+  particleGeo.setAttribute('position', new THREE.BufferAttribute(particlePos, 3));
+  const particleMat = new THREE.PointsMaterial({
+    size: 0.3, color: 0xffffff, transparent: true, opacity: 0.7,
+    blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true,
+  });
+  const particles = new THREE.Points(particleGeo, particleMat);
+  group.add(particles);
+
+  // 60-100 units from current ship position
+  const theta = Math.random() * Math.PI * 2;
+  const phi = Math.acos(2 * Math.random() - 1);
+  const r = 60 + Math.random() * 40;
+  group.position.set(
+    shipGroup.position.x + r * Math.sin(phi) * Math.cos(theta),
+    shipGroup.position.y + r * Math.sin(phi) * Math.sin(theta),
+    shipGroup.position.z + r * Math.cos(phi)
+  );
+
+  scene.add(group);
+  return { group, ringMesh, particles: { mesh: particles, positions: particlePos, count: particleCount }, innerGlow, active: true };
+}
+
+function updateWormhole(wormhole, shipGroup, state, elements, elapsed, delta, rgb) {
+  if (!wormhole) return;
+
+  const inAlt = state.wormhole.inAlternateDimension;
+
+  // Update cooldown
+  if (state.wormhole.cooldown > 0) state.wormhole.cooldown -= delta;
+
+  // Entry wormhole (normal dimension)
+  if (!inAlt && wormhole.active) {
+    const wg = wormhole.group;
+    wormhole.ringMesh.rotation.z += delta * 0.5;
+    wormhole.ringMesh.rotation.x += delta * 0.2;
+
+    // Spiral particles orbit the torus
+    const pPos = wormhole.particles.positions;
+    for (let i = 0; i < wormhole.particles.count; i++) {
+      const angle = (elapsed * 1.5 + i * 0.0314) % (Math.PI * 2);
+      const torusAngle = (i / wormhole.particles.count) * Math.PI * 2 + elapsed * 0.3;
+      const tr = 6 + Math.sin(angle) * 1.5;
+      pPos[i * 3] = Math.cos(torusAngle) * tr;
+      pPos[i * 3 + 1] = Math.sin(torusAngle) * tr;
+      pPos[i * 3 + 2] = Math.cos(angle) * 0.8;
+    }
+    wormhole.particles.mesh.geometry.attributes.position.needsUpdate = true;
+
+    // Inner glow pulse
+    wormhole.innerGlow.material.opacity = (0.2 + 0.15 * Math.sin(elapsed * 2)) * Math.max(0.3, rgb);
+
+    // Emissive-like brightness via material color intensity
+    const intensity = 0.5 + rgb * 0.5;
+    wormhole.ringMesh.material.opacity = 0.5 + intensity * 0.3;
+
+    // Proximity check
+    const dist = shipGroup.position.distanceTo(wg.position);
+    if (dist < 8 && state.wormhole.cooldown <= 0) {
+      triggerDimensionShift(state, elements, shipGroup, elapsed);
+    }
+
+    // Wrap: respawn if > 250 units from ship
+    if (dist > 250) {
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(2 * Math.random() - 1);
+      const r = 80 + Math.random() * 40;
+      wg.position.set(
+        shipGroup.position.x + r * Math.sin(phi) * Math.cos(theta),
+        shipGroup.position.y + r * Math.sin(phi) * Math.sin(theta),
+        shipGroup.position.z + r * Math.cos(phi)
+      );
+    }
+  }
+
+  // Exit wormhole (alternate dimension)
+  if (inAlt && wormhole.exitWormhole) {
+    const exit = wormhole.exitWormhole;
+    exit.ringMesh.rotation.z += delta * 0.5;
+    exit.ringMesh.rotation.x += delta * 0.2;
+
+    const ePPos = exit.particles.positions;
+    for (let i = 0; i < exit.particles.count; i++) {
+      const angle = (elapsed * 1.5 + i * 0.0314) % (Math.PI * 2);
+      const torusAngle = (i / exit.particles.count) * Math.PI * 2 + elapsed * 0.3;
+      const tr = 6 + Math.sin(angle) * 1.5;
+      ePPos[i * 3] = Math.cos(torusAngle) * tr;
+      ePPos[i * 3 + 1] = Math.sin(torusAngle) * tr;
+      ePPos[i * 3 + 2] = Math.cos(angle) * 0.8;
+    }
+    exit.particles.mesh.geometry.attributes.position.needsUpdate = true;
+
+    exit.innerGlow.material.opacity = (0.2 + 0.15 * Math.sin(elapsed * 2)) * Math.max(0.3, rgb);
+    const intensity = 0.5 + rgb * 0.5;
+    exit.ringMesh.material.opacity = 0.5 + intensity * 0.3;
+
+    const dist = shipGroup.position.distanceTo(exit.group.position);
+    if (dist < 8 && state.wormhole.cooldown <= 0) {
+      triggerDimensionShift(state, elements, shipGroup, elapsed);
+    }
+  }
+}
+
+function triggerDimensionShift(state, elements, shipGroup, elapsed) {
+  const entering = !state.wormhole.inAlternateDimension;
+  state.wormhole.inAlternateDimension = entering;
+  state.wormhole.cooldown = 3;
+
+  // Bloom flash
+  if (elements.bloomPass) {
+    elements.bloomPass.strength = 2.5;
+  }
+
+  // Shockwave
+  triggerShockwave(elements.shockwaves, shipGroup.position.clone(), elapsed);
+
+  if (entering) {
+    showActionText('DIMENSION SHIFT!');
+    // Spawn exit wormhole
+    elements.wormhole.exitWormhole = createExitWormhole(elements.wormhole.group.parent, shipGroup);
+    // Hide entry wormhole
+    elements.wormhole.group.visible = false;
+    // Shift target
+    state.wormhole.shiftTarget = 1.0;
+    // Physics changes
+    state.wormhole.gravityMult = 0.3;
+    // Track stat
+    state.achievements.stats.dimensionShifts = (state.achievements.stats.dimensionShifts || 0) + 1;
+  } else {
+    showActionText('RETURNING TO REALITY!');
+    // Remove exit wormhole
+    if (elements.wormhole.exitWormhole) {
+      elements.wormhole.exitWormhole.group.parent.remove(elements.wormhole.exitWormhole.group);
+      elements.wormhole.exitWormhole = null;
+    }
+    // Show entry wormhole, respawn it
+    elements.wormhole.group.visible = true;
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(2 * Math.random() - 1);
+    const r = 80 + Math.random() * 40;
+    elements.wormhole.group.position.set(
+      shipGroup.position.x + r * Math.sin(phi) * Math.cos(theta),
+      shipGroup.position.y + r * Math.sin(phi) * Math.sin(theta),
+      shipGroup.position.z + r * Math.cos(phi)
+    );
+    // Shift target
+    state.wormhole.shiftTarget = 0.0;
+    // Restore physics
+    state.wormhole.gravityMult = 1.0;
+  }
+
+  // Trigger wormhole transition sound
+  triggerWormholeSound(elements.sound);
+}
+
+function updateDimensionShift(state, elements, delta, elapsed) {
+  // Lerp shift amount toward target
+  const target = state.wormhole.shiftTarget;
+  const current = state.wormhole.shiftAmount;
+  state.wormhole.shiftAmount += (target - current) * Math.min(1, delta * 2);
+
+  // Update shader
+  if (elements.dimensionShiftPass) {
+    elements.dimensionShiftPass.uniforms.shiftAmount.value = state.wormhole.shiftAmount;
+    elements.dimensionShiftPass.uniforms.time.value = elapsed;
+  }
+
+  // Bloom recovery after dimension shift flash
+  if (elements.bloomPass && elements.bloomPass.strength > 0.5) {
+    elements.bloomPass.strength += (0.15 - elements.bloomPass.strength) * Math.min(1, delta * 3);
+  }
+
+  // Tint stars purple in alternate dimension
+  if (elements.stars && state.wormhole.inAlternateDimension) {
+    elements.stars.material.color.setHSL(0.78, 0.4, 0.6 + 0.1 * Math.sin(elapsed));
+  } else if (elements.stars && state.wormhole.shiftAmount < 0.01) {
+    elements.stars.material.color.setHex(0xffffff);
+  }
+}
+
+// Wormhole sound — proximity drone
+function createWormholeSound(sound) {
+  if (!sound || !sound.ctx) return null;
+  const ctx = sound.ctx;
+  const osc1 = ctx.createOscillator(); osc1.type = 'triangle'; osc1.frequency.value = 55;
+  const osc2 = ctx.createOscillator(); osc2.type = 'triangle'; osc2.frequency.value = 57;
+  const gain = ctx.createGain(); gain.gain.value = 0;
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'bandpass'; filter.frequency.value = 100; filter.Q.value = 3;
+  osc1.connect(filter); osc2.connect(filter);
+  filter.connect(gain); gain.connect(sound.masterGain);
+  osc1.start(); osc2.start();
+  return { osc1, osc2, gain };
+}
+
+function updateWormholeSound(wormholeSound, distance, maxRange, rgb) {
+  if (!wormholeSound) return;
+  const proximity = clamp01(1 - distance / maxRange);
+  const vol = proximity * proximity * 0.12 * rgb;
+  wormholeSound.gain.gain.value += (vol - wormholeSound.gain.gain.value) * 0.05;
+  wormholeSound.osc1.frequency.value = 55 + proximity * 15;
+  wormholeSound.osc2.frequency.value = 57 + proximity * 18;
+}
+
+function triggerWormholeSound(sound) {
+  if (!sound || sound.ctx.state !== 'running') return;
+  const ctx = sound.ctx;
+  const osc = ctx.createOscillator();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(100, ctx.currentTime);
+  osc.frequency.exponentialRampToValueAtTime(1500, ctx.currentTime + 1.0);
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0.2, ctx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.5);
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'lowpass'; filter.frequency.value = 2000;
+  osc.connect(filter); filter.connect(gain); gain.connect(sound.masterGain);
+  osc.start(); osc.stop(ctx.currentTime + 1.5);
+
+  // Reverb-like echo
+  const echo = ctx.createOscillator();
+  echo.type = 'sine';
+  echo.frequency.setValueAtTime(150, ctx.currentTime + 0.1);
+  echo.frequency.exponentialRampToValueAtTime(800, ctx.currentTime + 0.8);
+  const echoGain = ctx.createGain();
+  echoGain.gain.setValueAtTime(0.08, ctx.currentTime + 0.1);
+  echoGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.2);
+  echo.connect(echoGain); echoGain.connect(sound.masterGain);
+  echo.start(ctx.currentTime + 0.1); echo.stop(ctx.currentTime + 1.2);
+}
+
+// ---------------------------------------------------------------------------
 // HUD
 // ---------------------------------------------------------------------------
 
@@ -3875,6 +4417,8 @@ function showFlightHUD() {
   if (jumpHud) jumpHud.style.display = 'block';
   const empHud = document.getElementById('emp-cooldown-hud');
   if (empHud) empHud.style.display = 'block';
+  const whHud = document.getElementById('wormhole-cooldown-hud');
+  if (whHud) whHud.style.display = 'block';
 }
 
 // ---------------------------------------------------------------------------
@@ -4173,7 +4717,7 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
       updateLightningArcs(elements.lightning, delta, rgb);
 
       // Black hole
-      updateBlackHole(elements.blackHole, shipGroup, physics, elements.asteroids, camera, elapsed, delta, rgb, elements.lensingPass);
+      updateBlackHole(elements.blackHole, shipGroup, physics, elements.asteroids, camera, elapsed, delta, rgb, elements.lensingPass, state);
       const bhDist = shipGroup.position.distanceTo(elements.blackHole.group.position);
       updateBlackHoleDrone(elements.drone, bhDist, elements.blackHole.gravityRadius, rgb);
 
@@ -4224,9 +4768,37 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
       // Engine sound update
       updateEngineSound(elements.sound, physics, rgb);
 
+      // Procedural music
+      updateProceduralMusic(elements.music, elements.sound, physics, state, rgb, delta);
+
+      // Wormhole portal
+      updateWormhole(elements.wormhole, shipGroup, state, elements, elapsed, delta, rgb);
+      updateDimensionShift(state, elements, delta, elapsed);
+
+      // Wormhole proximity sound
+      if (elements.wormhole) {
+        const activeWormhole = state.wormhole.inAlternateDimension ? elements.wormhole.exitWormhole : elements.wormhole;
+        const whDist = activeWormhole && activeWormhole.group ? shipGroup.position.distanceTo(activeWormhole.group.position) : 999;
+        updateWormholeSound(elements.wormholeSound, whDist, 60, rgb);
+      }
+
+      // Apply drag modification in alternate dimension
+      if (state.wormhole.inAlternateDimension) {
+        physics.drag = 0.985;
+      } else {
+        physics.drag = 0.97;
+      }
+
+      // Wormhole cooldown HUD
+      const whHud = document.getElementById('wormhole-cooldown-hud');
+      if (whHud) {
+        whHud.textContent = state.wormhole.cooldown > 0 ? 'WORMHOLE: ' + Math.ceil(state.wormhole.cooldown) + 's' : 'WORMHOLE READY';
+        whHud.style.color = state.wormhole.cooldown > 0 ? 'rgba(100,100,100,0.6)' : 'rgba(136,0,255,0.8)';
+      }
+
       // Minimap (update every 2nd frame for performance)
       if (elements.minimapCtx && ++state.minimapFrame % 2 === 0) {
-        updateMinimap(elements.minimapCtx, shipGroup, elements.bookGroup, elements.asteroids, elements.nebulae, elements.blackHole, elements.whale, elements.comets, elapsed);
+        updateMinimap(elements.minimapCtx, shipGroup, elements.bookGroup, elements.asteroids, elements.nebulae, elements.blackHole, elements.whale, elements.comets, elapsed, elements.wormhole, state);
       }
     }
 
