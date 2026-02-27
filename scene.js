@@ -121,7 +121,7 @@ function beginTransformation() {
     document.body.appendChild(canvas);
 
     Array.from(document.body.children).forEach((el) => {
-      if (el.id !== 'threejs-canvas' && el.id !== 'flight-hud' && el.id !== 'speed-hud' && el.id !== 'minimap' && el.id !== 'action-text' && el.tagName !== 'SCRIPT' && el.tagName !== 'STYLE') {
+      if (el.id !== 'threejs-canvas' && el.id !== 'flight-hud' && el.id !== 'speed-hud' && el.id !== 'minimap' && el.id !== 'action-text' && el.id !== 'rgb-slider-hud' && el.tagName !== 'SCRIPT' && el.tagName !== 'STYLE') {
         el.style.display = 'none';
       }
     });
@@ -374,13 +374,24 @@ function initThreeScene(canvas) {
   const input = createInputState(canvas);
   const physics = createShipPhysics();
 
+  // RGB intensity slider
+  const rgbSlider = document.getElementById('rgb-slider');
+  const rgbState = { intensity: rgbSlider ? parseInt(rgbSlider.value) / 100 : 0.4 };
+  if (rgbSlider) {
+    rgbSlider.addEventListener('input', () => {
+      rgbState.intensity = parseInt(rgbSlider.value) / 100;
+      const label = document.getElementById('rgb-value');
+      if (label) label.textContent = rgbSlider.value;
+    });
+  }
+
   // Animation loop
   const state = {
     introActive: true, introStart: performance.now(), hudShown: false, prevBoost: false, minimapFrame: 0,
     barrelRoll: { active: false, direction: 1, startTime: 0, duration: 0.6, comboCount: 0, lastRollEnd: 0 },
     flip: { active: false, startTime: 0, startRotY: 0, duration: 0.8, cameraOffset: 0 },
   };
-  startAnimationLoop(renderFn, elements, camera, shipGroup, physics, input, state, lights);
+  startAnimationLoop(renderFn, elements, camera, shipGroup, physics, input, state, lights, rgbState);
   setupResize(camera, renderer, composer, bloomPass);
 
   // Font ready — assemble ship
@@ -854,13 +865,15 @@ function createRainbowTrail(scene) {
   return { mesh, positions, colors, count, head: 0 };
 }
 
-function updateRainbowTrail(trail, shipGroup, elapsed) {
+function updateRainbowTrail(trail, shipGroup, elapsed, rgb) {
+  const rgbVal = rgb !== undefined ? rgb : 0.4;
   const i = trail.head;
   trail.positions[i * 3] = shipGroup.position.x;
   trail.positions[i * 3 + 1] = shipGroup.position.y;
   trail.positions[i * 3 + 2] = shipGroup.position.z;
 
-  const color = new THREE.Color().setHSL((elapsed * 0.5) % 1, 1.0, 0.5);
+  const cycleSpeed = 0.1 + rgbVal * 0.9;
+  const color = new THREE.Color().setHSL((elapsed * cycleSpeed) % 1, 0.3 + rgbVal * 0.7, 0.3 + rgbVal * 0.3);
   trail.colors[i * 3] = color.r;
   trail.colors[i * 3 + 1] = color.g;
   trail.colors[i * 3 + 2] = color.b;
@@ -1334,16 +1347,20 @@ function createShipShield(shipGroup) {
   return { outer, inner, rippleTime: -1 };
 }
 
-function updateShipShield(shield, physics, input, elapsed, delta, hue, asteroids, shipGroup) {
-  // RGB sync
-  shield.outer.material.color.setHSL(hue, 0.9, 0.5);
-  shield.inner.material.color.setHSL(hue, 0.9, 0.5);
+function updateShipShield(shield, physics, input, elapsed, delta, hue, asteroids, shipGroup, rgb) {
+  const rgbVal = rgb !== undefined ? rgb : 0.4;
 
-  // Opacity based on speed
+  // RGB sync
+  const sat = 0.2 + rgbVal * 0.7;
+  shield.outer.material.color.setHSL(hue, sat, 0.3 + rgbVal * 0.3);
+  shield.inner.material.color.setHSL(hue, sat, 0.3 + rgbVal * 0.3);
+
+  // Opacity based on speed, scaled by RGB
   const speedRatio = physics.speed / physics.maxSpeed;
-  const baseOp = input.boost ? 0.20 : (speedRatio > 0.15 ? 0.10 : 0.04);
+  const baseOp = (input.boost ? 0.20 : (speedRatio > 0.15 ? 0.10 : 0.04)) * (0.3 + rgbVal * 0.7);
   const pulseFreq = 0.5 + speedRatio * 2.5;
-  const pulse = 1 + 0.3 * Math.sin(elapsed * pulseFreq * Math.PI * 2);
+  const pulseAmp = 0.1 + rgbVal * 0.3;
+  const pulse = 1 + pulseAmp * Math.sin(elapsed * pulseFreq * Math.PI * 2);
   shield.outer.material.opacity = baseOp * pulse;
   shield.inner.material.opacity = (baseOp * 0.5) * pulse;
 
@@ -1401,7 +1418,8 @@ function createContrail(scene, side) {
   return { mesh, positions, colors, ages, velocities, count, head: 0, side, frame: 0 };
 }
 
-function updateContrail(trail, shipGroup, physics, nebulae, delta) {
+function updateContrail(trail, shipGroup, physics, nebulae, delta, rgb) {
+  const rgbVal = rgb !== undefined ? rgb : 0.4;
   trail.frame++;
   const speedRatio = physics.speed / physics.maxSpeed;
 
@@ -1453,7 +1471,7 @@ function updateContrail(trail, shipGroup, physics, nebulae, delta) {
       trail.positions[i * 3] += 0.02 * delta;
       trail.positions[i * 3 + 1] -= 0.01 * delta;
 
-      let brightness = Math.max(0, 1 - trail.ages[i] / 4);
+      let brightness = Math.max(0, 1 - trail.ages[i] / 4) * (0.3 + rgbVal * 0.7);
       let cr = 1, cg = 1, cb = 1;
 
       // Nebula color blending
@@ -2002,13 +2020,15 @@ function showFlightHUD() {
   if (speedHud) speedHud.style.display = 'block';
   const minimap = document.getElementById('minimap');
   if (minimap) minimap.style.display = 'block';
+  const rgbHud = document.getElementById('rgb-slider-hud');
+  if (rgbHud) rgbHud.style.display = 'block';
 }
 
 // ---------------------------------------------------------------------------
 // Main animation loop
 // ---------------------------------------------------------------------------
 
-function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, input, state, lights) {
+function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, input, state, lights, rgbState) {
   const clock = new THREE.Clock();
 
   function animate() {
@@ -2053,6 +2073,9 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
         showFlightHUD();
       }
     }
+
+    // RGB intensity (0.0 = calm, 1.0 = maximum overkill)
+    const rgb = rgbState.intensity;
 
     // ---- Flight mode ----
     if (input.active) {
@@ -2114,6 +2137,15 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
 
       // Warp tunnel (after screen shake, before FOV)
       updateWarpTunnel(elements.warpTunnel, camera, shipGroup, physics, input, elapsed, delta, elements.bloomPass);
+      // Scale warp tunnel ring opacity by RGB
+      elements.warpTunnel.rings.forEach((ring) => {
+        ring.material.opacity *= (0.5 + rgb * 1.0);
+      });
+
+      // Bloom strength scaled by RGB
+      if (elements.bloomPass) {
+        elements.bloomPass.strength = 0.05 + rgb * 0.45;
+      }
 
       // FOV warp effect
       const targetFov = 60 + (physics.speed / physics.maxSpeed) * 15 + (input.boost ? 10 : 0);
@@ -2122,10 +2154,12 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
 
       // Thruster particles (world space)
       updateThrusterParticles(elements.thruster, shipGroup, physics, input, delta);
+      elements.thruster.mesh.material.opacity = (input.forward || input.boost || physics.speed > physics.baseSpeed * 1.5 ? 0.5 : 0.15) * (0.3 + rgb * 0.7);
 
-      // Engine glow intensity
+      // Engine glow intensity (scaled by RGB)
       const thrustActive = input.forward || input.boost || physics.speed > physics.baseSpeed * 1.5;
-      const targetGlow = input.boost ? 300 : (thrustActive ? 150 : 0);
+      const glowScale = 0.5 + rgb * 0.8;
+      const targetGlow = (input.boost ? 300 : (thrustActive ? 150 : 0)) * glowScale;
       elements.engineGlowL.intensity += (targetGlow - elements.engineGlowL.intensity) * 0.1;
       elements.engineGlowR.intensity += (targetGlow - elements.engineGlowR.intensity) * 0.1;
 
@@ -2145,33 +2179,54 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
       updateAsteroidProximity(elements.asteroids, shipGroup);
       updateNebulaClouds(elements.nebulae, shipGroup, physics, elapsed, delta);
 
+      // Nebula opacity scaled by RGB
+      elements.nebulae.clouds.forEach((c) => {
+        c.sprites.forEach((s, j) => {
+          s.material.opacity = c.baseOpacities[j] * (0.5 + rgb * 1.5);
+        });
+      });
+
       // RGB + hue (used by title and shield)
       const speedBoost = 1 + (physics.speed / physics.maxSpeed) * 0.5;
-      const hue = (elapsed * 0.3 * speedBoost) % 1;
+      const hue = (elapsed * 0.3 * speedBoost * Math.max(rgb, 0.01)) % 1;
+      const sat = 0.2 + rgb * 0.7;
 
       if (elements.titleMesh) {
-        elements.titleMesh.material.color.setHSL(hue, 0.9, 0.35);
-        elements.titleMesh.material.emissive.setHSL(hue, 0.9, 0.12);
+        elements.titleMesh.material.color.setHSL(hue, sat, 0.25 + rgb * 0.15);
+        elements.titleMesh.material.emissive.setHSL(hue, sat, 0.04 + rgb * 0.12);
       }
 
-      // Ship shield
+      // Ship shield (pass rgb for opacity scaling)
       if (input.boost && !state.prevBoost) elements.shield.rippleTime = elapsed;
-      updateShipShield(elements.shield, physics, input, elapsed, delta, hue, elements.asteroids, shipGroup);
+      updateShipShield(elements.shield, physics, input, elapsed, delta, hue, elements.asteroids, shipGroup, rgb);
 
       // Speed lines (hyperspace streaks)
       updateSpeedLines(elements.speedLines, camera, shipGroup, physics, elapsed);
+      elements.speedLines.mesh.material.opacity *= (0.5 + rgb * 0.5);
+      // At high RGB, tint speed lines rainbow
+      if (rgb > 0.6) {
+        const slHue = (elapsed * 0.8) % 1;
+        elements.speedLines.mesh.material.color.setHSL(slHue, rgb, 0.7);
+      } else {
+        elements.speedLines.mesh.material.color.setHex(0xaaccff);
+      }
 
       // Boost flash (triggers on boost start)
       if (input.boost && !state.prevBoost) triggerBoostFlash(elements.boostFlash);
       state.prevBoost = input.boost;
       updateBoostFlash(elements.boostFlash, delta);
+      // Scale boost flash by RGB
+      if (elements.boostFlash.active) {
+        elements.boostFlash.mesh.material.opacity *= (0.3 + rgb * 0.7);
+      }
 
-      // Rainbow trail behind ship
-      updateRainbowTrail(elements.rainbowTrail, shipGroup, elapsed);
+      // Rainbow trail behind ship (opacity and speed scaled by RGB)
+      elements.rainbowTrail.mesh.material.opacity = 0.1 + rgb * 0.5;
+      updateRainbowTrail(elements.rainbowTrail, shipGroup, elapsed, rgb);
 
-      // Contrail trails
-      updateContrail(elements.contrailL, shipGroup, physics, elements.nebulae, delta);
-      updateContrail(elements.contrailR, shipGroup, physics, elements.nebulae, delta);
+      // Contrail trails (brightness scaled by RGB)
+      updateContrail(elements.contrailL, shipGroup, physics, elements.nebulae, delta, rgb);
+      updateContrail(elements.contrailR, shipGroup, physics, elements.nebulae, delta, rgb);
 
       // Speed HUD
       const speedHud = document.getElementById('speed-hud');

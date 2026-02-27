@@ -371,3 +371,36 @@ describe('scene.js round 2 effects', () => {
     assert.match(scene, /easeOutElastic/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// RGB Intensity Slider
+// ---------------------------------------------------------------------------
+
+describe('RGB intensity slider', () => {
+  it('has slider HTML element', () => {
+    assert.match(html, /id=["']rgb-slider["']/);
+    assert.match(html, /id=["']rgb-slider-hud["']/);
+    assert.match(html, /id=["']rgb-value["']/);
+  });
+
+  it('has rgbState in scene.js', () => {
+    assert.match(scene, /rgbState/);
+    assert.match(scene, /rgb-slider/);
+  });
+
+  it('slider is excluded from beginTransformation hide', () => {
+    assert.match(scene, /rgb-slider-hud/);
+  });
+
+  it('slider is shown in showFlightHUD', () => {
+    assert.match(scene, /rgb-slider-hud/);
+  });
+
+  it('bloom strength is scaled by RGB', () => {
+    assert.match(scene, /bloomPass\.strength\s*=.*rgb/);
+  });
+
+  it('rgbState is passed to animation loop', () => {
+    assert.match(scene, /startAnimationLoop\([^)]*rgbState/);
+  });
+});
