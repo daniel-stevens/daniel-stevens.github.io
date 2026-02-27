@@ -159,7 +159,7 @@ describe('scene.js transition resilience', () => {
     const fnStart = scene.indexOf('function beginTransformation');
     assert.ok(fnStart !== -1, 'beginTransformation function not found');
 
-    const fnBody = scene.slice(fnStart, fnStart + 800);
+    const fnBody = scene.slice(fnStart, fnStart + 1200);
     const appendIdx = fnBody.indexOf('document.body.appendChild');
     const hideIdx = fnBody.indexOf("el.style.display = 'none'");
 
@@ -741,5 +741,198 @@ describe('scene.js achievement popups', () => {
     const showFn = scene.match(/function showFlightHUD[\s\S]*?^}/m);
     assert.ok(showFn, 'showFlightHUD function exists');
     assert.match(showFn[0], /achievement-container/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Space Whale / Leviathan
+// ---------------------------------------------------------------------------
+
+describe('scene.js space whale', () => {
+  it('has createSpaceWhale function', () => {
+    assert.match(scene, /createSpaceWhale/);
+    assert.match(scene, /SphereGeometry\(8/);
+  });
+
+  it('has updateSpaceWhale function', () => {
+    assert.match(scene, /updateSpaceWhale/);
+  });
+
+  it('has tendrils with flowing animation', () => {
+    assert.match(scene, /tendrils/);
+    assert.match(scene, /phaseOffset/);
+  });
+
+  it('has whale song with low frequency oscillators', () => {
+    assert.match(scene, /createWhaleSong/);
+    assert.match(scene, /updateWhaleSong/);
+  });
+
+  it('whale shown on minimap as cyan ellipse blip', () => {
+    assert.match(scene, /ellipse/);
+    assert.match(scene, /0, 255, 200/);
+  });
+
+  it('whale proximity tracked for achievement', () => {
+    assert.match(scene, /whaleProximity/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Hyperspace Jump
+// ---------------------------------------------------------------------------
+
+describe('scene.js hyperspace jump', () => {
+  it('has hyperspace charging and jump functions', () => {
+    assert.match(scene, /updateHyperspaceCharge/);
+    assert.match(scene, /triggerHyperspaceJump/);
+  });
+
+  it('uses SHIFT key for charging', () => {
+    assert.match(scene, /ShiftLeft/);
+    assert.match(scene, /chargeJump/);
+  });
+
+  it('has jump cooldown state', () => {
+    assert.match(scene, /hyperspace/);
+    assert.match(scene, /cooldownTime.*15/);
+  });
+
+  it('has jump sound with frequency sweep', () => {
+    assert.match(scene, /triggerJumpSound/);
+  });
+
+  it('has jump cooldown HUD in HTML', () => {
+    assert.match(html, /jump-cooldown-hud/);
+  });
+
+  it('jump cooldown HUD excluded from beginTransformation', () => {
+    assert.match(scene, /jump-cooldown-hud/);
+  });
+
+  it('HYPERSPACE JUMP action text', () => {
+    assert.match(scene, /HYPERSPACE JUMP/);
+  });
+
+  it('teleports ship on jump', () => {
+    assert.match(scene, /physics\.velocity\.set\(0, 0, 0\)/);
+  });
+
+  it('HUD shows SHIFT to jump', () => {
+    assert.match(html, /SHIFT to jump/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Comet Storms
+// ---------------------------------------------------------------------------
+
+describe('scene.js comet storms', () => {
+  it('has comet pool creation', () => {
+    assert.match(scene, /createCometPool/);
+  });
+
+  it('has comet storm update', () => {
+    assert.match(scene, /updateCometStorm/);
+  });
+
+  it('has warning sound', () => {
+    assert.match(scene, /triggerCometWarning/);
+  });
+
+  it('shows WARNING action text', () => {
+    assert.match(scene, /WARNING.*INCOMING/);
+  });
+
+  it('comets shown on minimap as orange blips', () => {
+    assert.match(scene, /255, 140, 30/);
+  });
+
+  it('missiles can destroy comets', () => {
+    assert.match(scene, /COMET DESTROYED/);
+  });
+
+  it('has storm survival tracking for achievement', () => {
+    assert.match(scene, /noDamageDuringStorm/);
+    assert.match(scene, /stormsSurvivedClean/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// EMP Blast
+// ---------------------------------------------------------------------------
+
+describe('scene.js EMP blast', () => {
+  it('has EMP mesh creation', () => {
+    assert.match(scene, /createEMPMesh/);
+  });
+
+  it('has EMP update function', () => {
+    assert.match(scene, /updateEMPBlast/);
+  });
+
+  it('uses E key for EMP charge', () => {
+    assert.match(scene, /KeyE/);
+    assert.match(scene, /empCharge/);
+  });
+
+  it('has EMP sound', () => {
+    assert.match(scene, /triggerEMPSound/);
+  });
+
+  it('has EMP cooldown HUD in HTML', () => {
+    assert.match(html, /emp-cooldown-hud/);
+  });
+
+  it('EMP cooldown HUD excluded from beginTransformation', () => {
+    assert.match(scene, /emp-cooldown-hud/);
+  });
+
+  it('has slow-mo effect via timeScale', () => {
+    assert.match(scene, /timeScale/);
+  });
+
+  it('has charging ring visual', () => {
+    assert.match(scene, /chargeMesh/);
+    assert.match(scene, /blastMesh/);
+  });
+
+  it('HUD shows E for EMP', () => {
+    assert.match(html, /E for EMP/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// New Achievements (Round 5)
+// ---------------------------------------------------------------------------
+
+describe('scene.js new achievements round 5', () => {
+  it('has WARP DRIVER achievement', () => {
+    assert.match(scene, /WARP DRIVER/);
+  });
+
+  it('has STORM SURVIVOR achievement', () => {
+    assert.match(scene, /STORM SURVIVOR/);
+  });
+
+  it('has EXTINCTION EVENT achievement', () => {
+    assert.match(scene, /EXTINCTION EVENT/);
+  });
+
+  it('has SPACE WHISPERER achievement', () => {
+    assert.match(scene, /SPACE WHISPERER/);
+  });
+
+  it('tracks new stats', () => {
+    assert.match(scene, /hyperspaceJumps/);
+    assert.match(scene, /cometsDestroyed/);
+    assert.match(scene, /empBlasts/);
+  });
+
+  it('cooldown HUDs shown in showFlightHUD', () => {
+    const showFn = scene.match(/function showFlightHUD[\s\S]*?^}/m);
+    assert.ok(showFn, 'showFlightHUD function exists');
+    assert.match(showFn[0], /jump-cooldown-hud/);
+    assert.match(showFn[0], /emp-cooldown-hud/);
   });
 });

@@ -192,6 +192,10 @@ const ACHIEVEMENTS = [
   { id: 'slayer_25', name: 'DESTROYER', desc: 'Destroy 25 asteroids', check: s => s.kills >= 25 },
   { id: 'distance_5000', name: 'VOYAGER', desc: 'Travel 5000 units', check: s => s.distanceTraveled >= 5000 },
   { id: 'barrel_king_20', name: 'ROLL ADDICT', desc: 'Perform 20 barrel rolls', check: s => s.barrelRolls >= 20 },
+  { id: 'warp_driver', name: 'WARP DRIVER', desc: 'Perform your first hyperspace jump', check: s => (s.hyperspaceJumps || 0) >= 1 },
+  { id: 'storm_survivor', name: 'STORM SURVIVOR', desc: 'Survive a comet storm without damage', check: s => (s.stormsSurvivedClean || 0) >= 1 },
+  { id: 'extinction_event', name: 'EXTINCTION EVENT', desc: 'Destroy 5+ objects with single EMP', check: s => (s.maxEMPKills || 0) >= 5 },
+  { id: 'space_whisperer', name: 'SPACE WHISPERER', desc: 'Get within 10 units of the space whale', check: s => s.whaleProximity },
 ];
 
 const isMobile = window.innerWidth < 768;
@@ -262,7 +266,7 @@ function beginTransformation() {
     document.body.appendChild(canvas);
 
     Array.from(document.body.children).forEach((el) => {
-      if (el.id !== 'threejs-canvas' && el.id !== 'flight-hud' && el.id !== 'speed-hud' && el.id !== 'minimap' && el.id !== 'action-text' && el.id !== 'rgb-slider-hud' && el.id !== 'health-bar-hud' && el.id !== 'achievement-container' && el.tagName !== 'SCRIPT' && el.tagName !== 'STYLE') {
+      if (el.id !== 'threejs-canvas' && el.id !== 'flight-hud' && el.id !== 'speed-hud' && el.id !== 'minimap' && el.id !== 'action-text' && el.id !== 'rgb-slider-hud' && el.id !== 'health-bar-hud' && el.id !== 'achievement-container' && el.id !== 'jump-cooldown-hud' && el.id !== 'emp-cooldown-hud' && el.tagName !== 'SCRIPT' && el.tagName !== 'STYLE') {
         el.style.display = 'none';
       }
     });
@@ -288,6 +292,7 @@ function createInputState(canvas) {
     boost: false, mouseX: 0, mouseY: 0, active: false,
     lastLeftTap: 0, lastRightTap: 0, leftTapped: false, rightTapped: false,
     flipRequested: false, fireRequested: false,
+    chargeJump: false, empCharge: false,
   };
 
   window.addEventListener('keydown', (e) => {
@@ -300,6 +305,8 @@ function createInputState(canvas) {
       case 'Space': input.boost = true; e.preventDefault(); break;
       case 'KeyQ': input.flipRequested = true; break;
       case 'KeyF': input.fireRequested = true; break;
+      case 'ShiftLeft': case 'ShiftRight': input.chargeJump = true; e.preventDefault(); break;
+      case 'KeyE': input.empCharge = true; break;
     }
   });
 
@@ -310,6 +317,8 @@ function createInputState(canvas) {
       case 'KeyA': case 'ArrowLeft':  input.left = false; break;
       case 'KeyD': case 'ArrowRight': input.right = false; break;
       case 'Space': input.boost = false; break;
+      case 'ShiftLeft': case 'ShiftRight': input.chargeJump = false; break;
+      case 'KeyE': input.empCharge = false; break;
     }
   });
 
@@ -486,6 +495,9 @@ function initThreeScene(canvas) {
   const lightning = createLightningPool(scene);
   const blackHole = createBlackHole(scene);
   const drone = createBlackHoleDrone(sound);
+  const whale = createSpaceWhale(scene);
+  const whaleSong = createWhaleSong(sound);
+  const comets = createCometPool(scene);
 
   const elements = {
     stars, ambient, titleMesh: null, tagMeshes: [], linkMeshes: [],
@@ -493,6 +505,7 @@ function initThreeScene(canvas) {
     speedLines, boostFlash, rainbowTrail, minimapCtx, flipBurst,
     asteroids, nebulae, shield, contrailL, contrailR, warpTunnel,
     shockwaves, missiles, explosions, sound, lightning, blackHole, drone,
+    whale, whaleSong, comets, empMeshes: null,
     bloomPass: null, chromaPass: null, motionBlurPass: null, lensingPass: null, crackPass: null,
   };
 
@@ -531,6 +544,7 @@ function initThreeScene(canvas) {
   }
 
   elements.bloomPass = bloomPass;
+  elements.empMeshes = createEMPMesh(scene, shipGroup);
 
   // Input + Physics
   const input = createInputState(canvas);
@@ -561,10 +575,24 @@ function initThreeScene(canvas) {
       dead: false, respawnTimer: 0,
     },
     achievements: {
-      stats: { kills: 0, distanceTraveled: 0, maxSpeedReached: 0, barrelRolls: 0, flips: 0, sonicBooms: 0, maxCombo: 0, timeSinceLastDamage: 0 },
+      stats: { kills: 0, distanceTraveled: 0, maxSpeedReached: 0, barrelRolls: 0, flips: 0, sonicBooms: 0, maxCombo: 0, timeSinceLastDamage: 0, hyperspaceJumps: 0, cometsDestroyed: 0, empBlasts: 0, maxEMPKills: 0, stormsSurvivedClean: 0, whaleProximity: false },
       unlocked: new Set(), popupQueue: [], activePopup: null, popupTimer: 0,
     },
     prevShipPosition: null,
+    hyperspace: {
+      charging: false, chargeTime: 0, jumping: false, jumpTimer: 0,
+      cooldown: 0, maxCharge: 3.0, cooldownTime: 15.0, jumpDuration: 1.5,
+    },
+    cometStorm: {
+      active: false, timer: 45 + Math.random() * 15, stormDuration: 0,
+      spawnTimer: 0, noDamageDuringStorm: true,
+    },
+    emp: {
+      charging: false, chargeTime: 0, cooldown: 0,
+      maxCharge: 2.0, cooldownTime: 20.0,
+      blastActive: false, blastRadius: 0, blastMaxRadius: 60,
+      timeScale: 1.0,
+    },
   };
   startAnimationLoop(renderFn, elements, camera, shipGroup, physics, input, state, lights, rgbState);
   setupResize(camera, renderer, composer, bloomPass);
@@ -2187,7 +2215,7 @@ function fireMissile(pool, shipGroup, physics, asteroids) {
   }
 }
 
-function updateMissiles(pool, asteroids, shipGroup, elapsed, delta, shockwaves, explosions, rgb) {
+function updateMissiles(pool, asteroids, shipGroup, elapsed, delta, shockwaves, explosions, rgb, comets) {
   let kills = 0;
   for (let i = 0; i < pool.count; i++) {
     const s = pool.states[i];
@@ -2236,6 +2264,24 @@ function updateMissiles(pool, asteroids, shipGroup, elapsed, delta, shockwaves, 
           );
           const texts = ['DESTROYED!', 'OBLITERATED!', 'ANNIHILATED!', 'VAPORIZED!'];
           showActionText(texts[Math.floor(Math.random() * texts.length)]);
+          kills++;
+          break;
+        }
+      }
+    }
+
+    // Comet hit detection
+    if (!hit && comets) {
+      for (let ci = 0; ci < comets.length; ci++) {
+        const c = comets[ci];
+        if (!c.active) continue;
+        if (c.position.distanceTo(s.position) < c.size + 1) {
+          hit = true;
+          triggerExplosion(explosions, c.position.clone(), rgb);
+          triggerShockwave(shockwaves, c.position.clone(), elapsed);
+          c.active = false; c.mesh.visible = false; c.mesh.material.opacity = 0;
+          c.trail.positions.fill(0); c.trail.mesh.geometry.attributes.position.needsUpdate = true;
+          showActionText('COMET DESTROYED!');
           kills++;
           break;
         }
@@ -2678,7 +2724,7 @@ function initMinimap() {
   return canvas.getContext('2d');
 }
 
-function updateMinimap(ctx, shipGroup, bookGroup, asteroids, nebulae, blackHole, elapsed) {
+function updateMinimap(ctx, shipGroup, bookGroup, asteroids, nebulae, blackHole, whale, comets, elapsed) {
   const w = ctx.canvas.width;
   const h = ctx.canvas.height;
   const cx = w / 2;
@@ -2874,6 +2920,44 @@ function updateMinimap(ctx, shipGroup, bookGroup, asteroids, nebulae, blackHole,
       ctx.arc(sx, sy, 4, 0, Math.PI * 2);
       ctx.fill();
     }
+  }
+
+  // Space whale blip — large cyan ellipse
+  if (whale) {
+    const dx = whale.group.position.x - shipGroup.position.x;
+    const dz = whale.group.position.z - shipGroup.position.z;
+    const dist = Math.sqrt(dx * dx + dz * dz);
+    if (dist < radarRange) {
+      const localX = dx * cosY - dz * sinY;
+      const localZ = dx * sinY + dz * cosY;
+      const sx = cx + localX * scale;
+      const sy = cy - localZ * scale;
+      ctx.fillStyle = 'rgba(0, 255, 200, 0.6)';
+      ctx.beginPath();
+      ctx.ellipse(sx, sy, 5, 3, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // Comet blips — orange filled circles
+  if (comets) {
+    comets.forEach((c) => {
+      if (!c.active) return;
+      const dx = c.position.x - shipGroup.position.x;
+      const dz = c.position.z - shipGroup.position.z;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      if (dist > radarRange) return;
+      const localX = dx * cosY - dz * sinY;
+      const localZ = dx * sinY + dz * cosY;
+      const sx = cx + localX * scale;
+      const sy = cy - localZ * scale;
+      const screenDist = Math.sqrt((sx - cx) * (sx - cx) + (sy - cy) * (sy - cy));
+      if (screenDist > radius - 2) return;
+      ctx.fillStyle = 'rgba(255, 140, 30, 0.9)';
+      ctx.beginPath();
+      ctx.arc(sx, sy, 2, 0, Math.PI * 2);
+      ctx.fill();
+    });
   }
 
   // Ship indicator — green triangle pointing up (forward)
@@ -3208,6 +3292,565 @@ function updateBlackHoleDrone(drone, distance, gravityRadius, rgb) {
 }
 
 // ---------------------------------------------------------------------------
+// Space Whale / Leviathan
+// ---------------------------------------------------------------------------
+
+function createSpaceWhale(scene) {
+  const group = new THREE.Group();
+
+  const bodyGeo = new THREE.SphereGeometry(8, 32, 16);
+  const bodyMat = new THREE.MeshStandardMaterial({
+    color: 0x00cccc, emissive: 0x2244aa, emissiveIntensity: 0.5,
+    transparent: true, opacity: 0.7,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  });
+  const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
+  bodyMesh.scale.set(1, 0.4, 0.6);
+  group.add(bodyMesh);
+
+  const tendrils = [];
+  for (let t = 0; t < 6; t++) {
+    const points = 20;
+    const positions = new Float32Array(points * 3);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const mat = new THREE.LineBasicMaterial({
+      color: 0x00ffcc, transparent: true, opacity: 0.4,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    });
+    const line = new THREE.Line(geo, mat);
+    group.add(line);
+    tendrils.push({ line, positions, pointCount: points, phaseOffset: t * 1.1 });
+  }
+
+  const trailCount = 100;
+  const trailPos = new Float32Array(trailCount * 3);
+  const trailGeo = new THREE.BufferGeometry();
+  trailGeo.setAttribute('position', new THREE.BufferAttribute(trailPos, 3));
+  const trailMat = new THREE.PointsMaterial({
+    size: 0.8, color: 0x44ffcc, transparent: true, opacity: 0.3,
+    blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true,
+  });
+  const trailMesh = new THREE.Points(trailGeo, trailMat);
+  scene.add(trailMesh);
+
+  const theta = Math.random() * Math.PI * 2;
+  const phi = Math.acos(2 * Math.random() - 1);
+  const r = 100 + Math.random() * 100;
+  group.position.set(r * Math.sin(phi) * Math.cos(theta), r * Math.sin(phi) * Math.sin(theta), r * Math.cos(phi));
+
+  const dir = new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize();
+  scene.add(group);
+
+  return {
+    group, bodyMesh, tendrils, dir, speed: 2 + Math.random(),
+    trail: { mesh: trailMesh, positions: trailPos, count: trailCount, head: 0 },
+    phase: Math.random() * Math.PI * 2,
+  };
+}
+
+function updateSpaceWhale(whale, shipGroup, elapsed, delta, rgb) {
+  const weave = new THREE.Vector3(
+    Math.sin(elapsed * 0.3 + whale.phase) * 0.5,
+    Math.sin(elapsed * 0.2 + whale.phase * 1.3) * 0.3, 0
+  );
+  whale.group.position.addScaledVector(whale.dir, whale.speed * delta);
+  whale.group.position.addScaledVector(weave, delta);
+
+  whale.bodyMesh.material.emissiveIntensity = 0.3 + 0.3 * Math.sin(elapsed * 0.8 + whale.phase);
+  whale.bodyMesh.material.opacity = (0.5 + 0.2 * Math.sin(elapsed * 0.5)) * (0.5 + rgb * 0.5);
+
+  whale.tendrils.forEach((t) => {
+    for (let i = 0; i < t.pointCount; i++) {
+      const frac = i / t.pointCount;
+      t.positions[i * 3] = -frac * 12;
+      t.positions[i * 3 + 1] = Math.sin(elapsed * 2 + i * 0.5 + t.phaseOffset) * frac * 3;
+      t.positions[i * 3 + 2] = Math.cos(elapsed * 1.5 + i * 0.7 + t.phaseOffset) * frac * 2;
+    }
+    t.line.geometry.attributes.position.needsUpdate = true;
+    t.line.material.opacity = 0.3 * (0.5 + rgb * 0.5);
+  });
+
+  const trail = whale.trail;
+  trail.positions[trail.head * 3] = whale.group.position.x + (Math.random() - 0.5) * 2;
+  trail.positions[trail.head * 3 + 1] = whale.group.position.y + (Math.random() - 0.5) * 1;
+  trail.positions[trail.head * 3 + 2] = whale.group.position.z + (Math.random() - 0.5) * 2;
+  trail.head = (trail.head + 1) % trail.count;
+  trail.mesh.geometry.attributes.position.needsUpdate = true;
+  trail.mesh.material.opacity = 0.2 * (0.3 + rgb * 0.7);
+
+  if (whale.group.position.distanceTo(shipGroup.position) > 250) {
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(2 * Math.random() - 1);
+    const r = 150 + Math.random() * 50;
+    whale.group.position.set(
+      shipGroup.position.x + r * Math.sin(phi) * Math.cos(theta),
+      shipGroup.position.y + r * Math.sin(phi) * Math.sin(theta),
+      shipGroup.position.z + r * Math.cos(phi)
+    );
+    whale.dir.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize();
+  }
+
+  const target = whale.group.position.clone().add(whale.dir);
+  whale.group.lookAt(target);
+}
+
+function createWhaleSong(sound) {
+  if (!sound || !sound.ctx) return null;
+  const ctx = sound.ctx;
+  const osc1 = ctx.createOscillator();
+  osc1.type = 'sine'; osc1.frequency.value = 40;
+  const osc2 = ctx.createOscillator();
+  osc2.type = 'sine'; osc2.frequency.value = 42;
+  const gain = ctx.createGain();
+  gain.gain.value = 0;
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'bandpass'; filter.frequency.value = 60; filter.Q.value = 2;
+  osc1.connect(filter); osc2.connect(filter);
+  filter.connect(gain); gain.connect(sound.masterGain);
+  osc1.start(); osc2.start();
+  return { osc1, osc2, gain };
+}
+
+function updateWhaleSong(song, distance, maxRange, rgb) {
+  if (!song) return;
+  const proximity = clamp01(1 - distance / maxRange);
+  const vol = proximity * proximity * 0.1 * rgb;
+  song.gain.gain.value += (vol - song.gain.gain.value) * 0.05;
+  song.osc1.frequency.value = 40 + proximity * 5;
+  song.osc2.frequency.value = 42 + proximity * 6;
+}
+
+// ---------------------------------------------------------------------------
+// Comet Storms
+// ---------------------------------------------------------------------------
+
+function createCometPool(scene) {
+  const count = 12;
+  const comets = [];
+  for (let i = 0; i < count; i++) {
+    const size = 0.5 + Math.random() * 1.0;
+    const geo = new THREE.IcosahedronGeometry(size, 0);
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0xff6622, emissive: 0xff4400, emissiveIntensity: 0.8,
+      transparent: true, opacity: 0,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.visible = false;
+    mesh.userData.size = size;
+    scene.add(mesh);
+
+    const trailCount = 40;
+    const tPos = new Float32Array(trailCount * 3);
+    const tGeo = new THREE.BufferGeometry();
+    tGeo.setAttribute('position', new THREE.BufferAttribute(tPos, 3));
+    const tMat = new THREE.PointsMaterial({
+      size: 0.5, color: 0xffaa22, transparent: true, opacity: 0.6,
+      blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true,
+    });
+    const tMesh = new THREE.Points(tGeo, tMat);
+    scene.add(tMesh);
+
+    comets.push({
+      mesh, trail: { mesh: tMesh, positions: tPos, count: trailCount, head: 0 },
+      position: new THREE.Vector3(), velocity: new THREE.Vector3(),
+      active: false, lifetime: 0, size,
+    });
+  }
+  return comets;
+}
+
+function updateCometStorm(state, comets, shipGroup, asteroids, elements, elapsed, delta, rgb) {
+  const storm = state.cometStorm;
+
+  if (!storm.active) {
+    storm.timer -= delta;
+    if (storm.timer <= 0) {
+      storm.active = true;
+      storm.stormDuration = 8;
+      storm.spawnTimer = 0;
+      storm.noDamageDuringStorm = true;
+      showActionText('WARNING: INCOMING!');
+      triggerCometWarning(elements.sound);
+    }
+  } else {
+    storm.stormDuration -= delta;
+    storm.spawnTimer -= delta;
+
+    if (storm.spawnTimer <= 0 && storm.stormDuration > 0) {
+      for (let i = 0; i < comets.length; i++) {
+        if (!comets[i].active) {
+          const c = comets[i];
+          c.active = true;
+          c.lifetime = 3;
+          const theta = Math.random() * Math.PI * 2;
+          const phi = Math.acos(2 * Math.random() - 1);
+          const r = 60 + Math.random() * 40;
+          c.position.set(
+            shipGroup.position.x + r * Math.sin(phi) * Math.cos(theta),
+            shipGroup.position.y + r * Math.sin(phi) * Math.sin(theta),
+            shipGroup.position.z + r * Math.cos(phi)
+          );
+          c.velocity.copy(shipGroup.position).sub(c.position).normalize();
+          c.velocity.x += (Math.random() - 0.5) * 0.3;
+          c.velocity.y += (Math.random() - 0.5) * 0.3;
+          c.velocity.z += (Math.random() - 0.5) * 0.3;
+          c.velocity.normalize().multiplyScalar(30 + Math.random() * 20);
+          c.mesh.visible = true;
+          c.mesh.material.opacity = 1;
+          break;
+        }
+      }
+      storm.spawnTimer = 0.3 + Math.random() * 0.2;
+    }
+
+    if (storm.stormDuration <= 0) {
+      storm.active = false;
+      storm.timer = 45 + Math.random() * 15;
+      if (storm.noDamageDuringStorm) {
+        state.achievements.stats.stormsSurvivedClean = (state.achievements.stats.stormsSurvivedClean || 0) + 1;
+      }
+    }
+  }
+
+  for (let i = 0; i < comets.length; i++) {
+    const c = comets[i];
+    if (!c.active) continue;
+    c.lifetime -= delta;
+    c.position.addScaledVector(c.velocity, delta);
+    c.mesh.position.copy(c.position);
+    c.mesh.rotation.x += delta * 3;
+    c.mesh.rotation.y += delta * 2;
+
+    const t = c.trail;
+    t.positions[t.head * 3] = c.position.x;
+    t.positions[t.head * 3 + 1] = c.position.y;
+    t.positions[t.head * 3 + 2] = c.position.z;
+    t.head = (t.head + 1) % t.count;
+    t.mesh.geometry.attributes.position.needsUpdate = true;
+
+    if (c.position.distanceTo(shipGroup.position) < c.size + 2 && !state.health.invincible && !state.health.dead) {
+      const damage = 15 + c.size * 3;
+      state.health.current = Math.max(0, state.health.current - damage);
+      state.health.crackIntensity = clamp01(state.health.crackIntensity + damage / 100);
+      state.health.lastDamageTime = elapsed;
+      state.achievements.stats.timeSinceLastDamage = 0;
+      storm.noDamageDuringStorm = false;
+      state.explosionShake = 0.8;
+      triggerExplosion(elements.explosions, c.position.clone(), rgb);
+      triggerShockwave(elements.shockwaves, c.position.clone(), elapsed);
+      triggerDamageSound(elements.sound);
+      showActionText('COMET IMPACT!');
+      c.active = false; c.mesh.visible = false; c.mesh.material.opacity = 0;
+      c.trail.positions.fill(0); c.trail.mesh.geometry.attributes.position.needsUpdate = true;
+      if (state.health.current <= 0) triggerShipDeath(state, elements, shipGroup, elapsed);
+      continue;
+    }
+
+    if (asteroids) {
+      let cometDestroyed = false;
+      for (let a = 0; a < asteroids.meshes.length; a++) {
+        const am = asteroids.meshes[a];
+        const hitDist = (am.userData.size || 1) + c.size;
+        if (am.position.distanceTo(c.position) < hitDist) {
+          triggerExplosion(elements.explosions, c.position.clone(), rgb);
+          triggerShockwave(elements.shockwaves, c.position.clone(), elapsed);
+          triggerExplosionSound(elements.sound);
+          const theta2 = Math.random() * Math.PI * 2;
+          const phi2 = Math.acos(2 * Math.random() - 1);
+          const r2 = 80 + Math.random() * 70;
+          am.position.set(
+            shipGroup.position.x + r2 * Math.sin(phi2) * Math.cos(theta2),
+            shipGroup.position.y + r2 * Math.sin(phi2) * Math.sin(theta2),
+            shipGroup.position.z + r2 * Math.cos(phi2)
+          );
+          c.active = false; c.mesh.visible = false; c.mesh.material.opacity = 0;
+          c.trail.positions.fill(0); c.trail.mesh.geometry.attributes.position.needsUpdate = true;
+          state.achievements.stats.cometsDestroyed = (state.achievements.stats.cometsDestroyed || 0) + 1;
+          cometDestroyed = true;
+          break;
+        }
+      }
+      if (cometDestroyed) continue;
+    }
+
+    if (c.lifetime <= 0) {
+      c.active = false; c.mesh.visible = false; c.mesh.material.opacity = 0;
+      c.trail.positions.fill(0); c.trail.mesh.geometry.attributes.position.needsUpdate = true;
+    }
+  }
+}
+
+function triggerCometWarning(sound) {
+  if (!sound || sound.ctx.state !== 'running') return;
+  const ctx = sound.ctx;
+  for (let i = 0; i < 3; i++) {
+    const start = ctx.currentTime + i * 0.6;
+    const osc = ctx.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(1000, start);
+    osc.frequency.exponentialRampToValueAtTime(200, start + 0.4);
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.12, start);
+    gain.gain.exponentialRampToValueAtTime(0.001, start + 0.5);
+    osc.connect(gain); gain.connect(sound.masterGain);
+    osc.start(start); osc.stop(start + 0.5);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// EMP Blast / Superweapon
+// ---------------------------------------------------------------------------
+
+function createEMPMesh(scene, shipGroup) {
+  const blastGeo = new THREE.SphereGeometry(1, 32, 16);
+  const blastMat = new THREE.MeshBasicMaterial({
+    color: 0xffffff, transparent: true, opacity: 0,
+    blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+  });
+  const blastMesh = new THREE.Mesh(blastGeo, blastMat);
+  blastMesh.visible = false;
+  scene.add(blastMesh);
+
+  const chargeGeo = new THREE.TorusGeometry(3, 0.1, 8, 32);
+  const chargeMat = new THREE.MeshBasicMaterial({
+    color: 0x44ccff, transparent: true, opacity: 0,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  });
+  const chargeMesh = new THREE.Mesh(chargeGeo, chargeMat);
+  shipGroup.add(chargeMesh);
+
+  return { blastMesh, chargeMesh };
+}
+
+function updateEMPBlast(state, input, elements, shipGroup, asteroids, comets, elapsed, delta, rgb, camera) {
+  const emp = state.emp;
+
+  if (emp.cooldown > 0) emp.cooldown = Math.max(0, emp.cooldown - delta);
+  if (emp.timeScale < 1.0) emp.timeScale = Math.min(1.0, emp.timeScale + delta * 2);
+
+  if (emp.blastActive) {
+    emp.blastRadius += delta * 80;
+    const empMesh = elements.empMeshes.blastMesh;
+    empMesh.scale.setScalar(emp.blastRadius);
+    empMesh.material.opacity = clamp01(0.5 * (1 - emp.blastRadius / emp.blastMaxRadius)) * rgb;
+    empMesh.material.color.setHSL((elapsed * 2) % 1, 0.5, 0.8);
+    if (emp.blastRadius >= emp.blastMaxRadius) {
+      emp.blastActive = false;
+      empMesh.visible = false;
+      empMesh.material.opacity = 0;
+    }
+    return;
+  }
+
+  if (!input.empCharge || emp.cooldown > 0 || state.health.dead) {
+    if (emp.chargeTime >= 1.0 && !input.empCharge) {
+      // Fire EMP on release
+      const effectiveRadius = emp.blastMaxRadius * clamp01(emp.chargeTime / emp.maxCharge);
+      emp.blastActive = true;
+      emp.blastRadius = 0;
+      emp.cooldown = emp.cooldownTime;
+      emp.timeScale = 0.3;
+
+      elements.empMeshes.blastMesh.visible = true;
+      elements.empMeshes.blastMesh.position.copy(shipGroup.position);
+      elements.empMeshes.chargeMesh.material.opacity = 0;
+      elements.empMeshes.chargeMesh.scale.setScalar(1);
+
+      triggerBoostFlash(elements.boostFlash);
+      triggerEMPSound(elements.sound);
+
+      let destroyCount = 0;
+      let shockCount = 0;
+      if (asteroids) {
+        asteroids.meshes.forEach((m) => {
+          if (m.position.distanceTo(shipGroup.position) < effectiveRadius) {
+            triggerExplosion(elements.explosions, m.position.clone(), rgb);
+            if (shockCount < 3) { triggerShockwave(elements.shockwaves, m.position.clone(), elapsed); shockCount++; }
+            const theta = Math.random() * Math.PI * 2;
+            const phi = Math.acos(2 * Math.random() - 1);
+            const r = 80 + Math.random() * 70;
+            m.position.set(
+              shipGroup.position.x + r * Math.sin(phi) * Math.cos(theta),
+              shipGroup.position.y + r * Math.sin(phi) * Math.sin(theta),
+              shipGroup.position.z + r * Math.cos(phi)
+            );
+            destroyCount++;
+          }
+        });
+      }
+      if (comets) {
+        comets.forEach((c) => {
+          if (c.active && c.position.distanceTo(shipGroup.position) < effectiveRadius) {
+            triggerExplosion(elements.explosions, c.position.clone(), rgb);
+            c.active = false; c.mesh.visible = false;
+            c.trail.positions.fill(0); c.trail.mesh.geometry.attributes.position.needsUpdate = true;
+            destroyCount++;
+            state.achievements.stats.cometsDestroyed = (state.achievements.stats.cometsDestroyed || 0) + 1;
+          }
+        });
+      }
+
+      state.achievements.stats.kills += destroyCount;
+      state.achievements.stats.empBlasts = (state.achievements.stats.empBlasts || 0) + 1;
+      state.achievements.stats.maxEMPKills = Math.max(state.achievements.stats.maxEMPKills || 0, destroyCount);
+      if (destroyCount > 0) {
+        showActionText('EMP: ' + destroyCount + ' DESTROYED!');
+      } else {
+        showActionText('EMP BLAST!');
+      }
+      state.explosionShake = 1.5;
+    }
+    emp.chargeTime = 0;
+    emp.charging = false;
+    elements.empMeshes.chargeMesh.material.opacity = 0;
+    elements.empMeshes.chargeMesh.scale.setScalar(1);
+    return;
+  }
+
+  emp.charging = true;
+  emp.chargeTime = Math.min(emp.maxCharge, emp.chargeTime + delta);
+  const chargePct = emp.chargeTime / emp.maxCharge;
+  elements.empMeshes.chargeMesh.material.opacity = chargePct * 0.5 * rgb;
+  elements.empMeshes.chargeMesh.scale.setScalar(1 + chargePct * 2);
+  elements.empMeshes.chargeMesh.rotation.z += delta * (2 + chargePct * 8);
+
+  if (emp.chargeTime >= 1.0) {
+    showActionText('EMP CHARGED ' + Math.floor(chargePct * 100) + '%');
+  }
+}
+
+function triggerEMPSound(sound) {
+  if (!sound || sound.ctx.state !== 'running') return;
+  const ctx = sound.ctx;
+  const bass = ctx.createOscillator();
+  bass.type = 'sine'; bass.frequency.value = 30;
+  const bassGain = ctx.createGain();
+  bassGain.gain.setValueAtTime(0.3, ctx.currentTime);
+  bassGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 2.0);
+  bass.connect(bassGain); bassGain.connect(sound.masterGain);
+  bass.start(); bass.stop(ctx.currentTime + 2.0);
+
+  const bufferSize = ctx.sampleRate * 0.8;
+  const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+  const noise = ctx.createBufferSource();
+  noise.buffer = buffer;
+  const noiseGain = ctx.createGain();
+  noiseGain.gain.setValueAtTime(0.2, ctx.currentTime);
+  noiseGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.5);
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'bandpass'; filter.frequency.value = 800; filter.Q.value = 0.5;
+  noise.connect(filter); filter.connect(noiseGain); noiseGain.connect(sound.masterGain);
+  noise.start(); noise.stop(ctx.currentTime + 1.5);
+}
+
+// ---------------------------------------------------------------------------
+// Hyperspace Jump
+// ---------------------------------------------------------------------------
+
+function updateHyperspaceCharge(state, input, shipGroup, physics, elements, elapsed, delta, rgb, camera) {
+  const hs = state.hyperspace;
+
+  if (hs.cooldown > 0) hs.cooldown = Math.max(0, hs.cooldown - delta);
+
+  if (hs.jumping) {
+    hs.jumpTimer -= delta;
+    if (elements.bloomPass) {
+      elements.bloomPass.strength += (0.15 - elements.bloomPass.strength) * delta * 2;
+    }
+    const shake = 0.2 * clamp01(hs.jumpTimer / hs.jumpDuration);
+    camera.position.x += (Math.random() - 0.5) * shake;
+    camera.position.y += (Math.random() - 0.5) * shake;
+    if (hs.jumpTimer <= 0) hs.jumping = false;
+    return;
+  }
+
+  if (!input.chargeJump || hs.cooldown > 0) {
+    if (hs.chargeTime > 0) {
+      hs.chargeTime = 0;
+      hs.charging = false;
+    }
+    return;
+  }
+
+  hs.charging = true;
+  hs.chargeTime += delta;
+  const pct = Math.floor((hs.chargeTime / hs.maxCharge) * 100);
+  showActionText('CHARGING ' + Math.min(pct, 100) + '%...');
+
+  const vibration = 0.03 * (hs.chargeTime / hs.maxCharge);
+  camera.position.x += (Math.random() - 0.5) * vibration;
+  camera.position.y += (Math.random() - 0.5) * vibration;
+
+  if (elements.chromaPass) {
+    elements.chromaPass.uniforms.amount.value += (hs.chargeTime / hs.maxCharge) * 0.01;
+  }
+
+  if (hs.chargeTime >= hs.maxCharge) {
+    triggerHyperspaceJump(state, shipGroup, physics, elements, elapsed, camera);
+  }
+}
+
+function triggerHyperspaceJump(state, shipGroup, physics, elements, elapsed, camera) {
+  const hs = state.hyperspace;
+  hs.jumping = true;
+  hs.jumpTimer = hs.jumpDuration;
+  hs.charging = false;
+  hs.chargeTime = 0;
+  hs.cooldown = hs.cooldownTime;
+
+  if (elements.bloomPass) elements.bloomPass.strength = 3.0;
+
+  triggerShockwave(elements.shockwaves, shipGroup.position.clone(), elapsed);
+
+  const theta = Math.random() * Math.PI * 2;
+  const phi = Math.acos(2 * Math.random() - 1);
+  const r = 300 + Math.random() * 200;
+  shipGroup.position.set(
+    shipGroup.position.x + r * Math.sin(phi) * Math.cos(theta),
+    shipGroup.position.y + r * Math.sin(phi) * Math.sin(theta),
+    shipGroup.position.z + r * Math.cos(phi)
+  );
+
+  physics.velocity.set(0, 0, 0);
+  physics.speed = 0;
+
+  triggerShockwave(elements.shockwaves, shipGroup.position.clone(), elapsed);
+  triggerBoostFlash(elements.boostFlash);
+  triggerJumpSound(elements.sound);
+
+  showActionText('HYPERSPACE JUMP!');
+  state.achievements.stats.hyperspaceJumps = (state.achievements.stats.hyperspaceJumps || 0) + 1;
+}
+
+function triggerJumpSound(sound) {
+  if (!sound || sound.ctx.state !== 'running') return;
+  const ctx = sound.ctx;
+  const osc = ctx.createOscillator();
+  osc.type = 'sawtooth';
+  osc.frequency.setValueAtTime(200, ctx.currentTime);
+  osc.frequency.exponentialRampToValueAtTime(2000, ctx.currentTime + 2.0);
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0.15, ctx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 3.0);
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'lowpass'; filter.frequency.value = 3000;
+  osc.connect(filter); filter.connect(gain); gain.connect(sound.masterGain);
+  osc.start(); osc.stop(ctx.currentTime + 3.0);
+
+  const bass = ctx.createOscillator();
+  bass.type = 'sine'; bass.frequency.value = 40;
+  const bassGain = ctx.createGain();
+  bassGain.gain.setValueAtTime(0, ctx.currentTime + 2.0);
+  bassGain.gain.linearRampToValueAtTime(0.3, ctx.currentTime + 2.05);
+  bassGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 3.5);
+  bass.connect(bassGain); bassGain.connect(sound.masterGain);
+  bass.start(); bass.stop(ctx.currentTime + 3.5);
+}
+
+// ---------------------------------------------------------------------------
 // HUD
 // ---------------------------------------------------------------------------
 
@@ -3228,6 +3871,10 @@ function showFlightHUD() {
   if (healthHud) healthHud.style.display = 'block';
   const achContainer = document.getElementById('achievement-container');
   if (achContainer) achContainer.style.display = 'block';
+  const jumpHud = document.getElementById('jump-cooldown-hud');
+  if (jumpHud) jumpHud.style.display = 'block';
+  const empHud = document.getElementById('emp-cooldown-hud');
+  if (empHud) empHud.style.display = 'block';
 }
 
 // ---------------------------------------------------------------------------
@@ -3493,7 +4140,7 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
 
       // Missiles + explosions
       const prevExplosionActive = elements.explosions.instances.map(i => i.active);
-      const missileKills = updateMissiles(elements.missiles, elements.asteroids, shipGroup, elapsed, delta, elements.shockwaves, elements.explosions, rgb);
+      const missileKills = updateMissiles(elements.missiles, elements.asteroids, shipGroup, elapsed, delta, elements.shockwaves, elements.explosions, rgb, elements.comets);
       state.achievements.stats.kills += missileKills;
       // Detect new explosions for screen shake + boost flash + sound
       elements.explosions.instances.forEach((inst, idx) => {
@@ -3530,6 +4177,21 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
       const bhDist = shipGroup.position.distanceTo(elements.blackHole.group.position);
       updateBlackHoleDrone(elements.drone, bhDist, elements.blackHole.gravityRadius, rgb);
 
+      // Space whale
+      updateSpaceWhale(elements.whale, shipGroup, elapsed, delta, rgb);
+      const whaleDist = shipGroup.position.distanceTo(elements.whale.group.position);
+      updateWhaleSong(elements.whaleSong, whaleDist, 80, rgb);
+      if (whaleDist < 10) state.achievements.stats.whaleProximity = true;
+
+      // Comet storms
+      updateCometStorm(state, elements.comets, shipGroup, elements.asteroids, elements, elapsed, delta, rgb);
+
+      // EMP blast
+      updateEMPBlast(state, input, elements, shipGroup, elements.asteroids, elements.comets, elapsed, delta, rgb, camera);
+
+      // Hyperspace jump
+      updateHyperspaceCharge(state, input, shipGroup, physics, elements, elapsed, delta, rgb, camera);
+
       // Collision & health
       checkShipCollisions(elements.asteroids, shipGroup, state, elements, elapsed, rgb);
       updateHealthSystem(state, elements, elapsed, delta, shipGroup, physics);
@@ -3547,12 +4209,24 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
       const speedHud = document.getElementById('speed-hud');
       if (speedHud) speedHud.textContent = 'SPEED: ' + Math.round(physics.speed);
 
+      // Cooldown HUDs
+      const jumpHud = document.getElementById('jump-cooldown-hud');
+      if (jumpHud) {
+        jumpHud.textContent = state.hyperspace.cooldown > 0 ? 'JUMP: ' + Math.ceil(state.hyperspace.cooldown) + 's' : 'JUMP READY';
+        jumpHud.style.color = state.hyperspace.cooldown > 0 ? 'rgba(100,100,100,0.6)' : 'rgba(0,200,255,0.8)';
+      }
+      const empHud = document.getElementById('emp-cooldown-hud');
+      if (empHud) {
+        empHud.textContent = state.emp.cooldown > 0 ? 'EMP: ' + Math.ceil(state.emp.cooldown) + 's' : 'EMP READY';
+        empHud.style.color = state.emp.cooldown > 0 ? 'rgba(100,100,100,0.6)' : 'rgba(255,100,255,0.8)';
+      }
+
       // Engine sound update
       updateEngineSound(elements.sound, physics, rgb);
 
       // Minimap (update every 2nd frame for performance)
       if (elements.minimapCtx && ++state.minimapFrame % 2 === 0) {
-        updateMinimap(elements.minimapCtx, shipGroup, elements.bookGroup, elements.asteroids, elements.nebulae, elements.blackHole, elapsed);
+        updateMinimap(elements.minimapCtx, shipGroup, elements.bookGroup, elements.asteroids, elements.nebulae, elements.blackHole, elements.whale, elements.comets, elapsed);
       }
     }
 
