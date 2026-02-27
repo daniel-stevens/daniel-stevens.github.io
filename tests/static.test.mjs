@@ -404,3 +404,143 @@ describe('RGB intensity slider', () => {
     assert.match(scene, /startAnimationLoop\([^)]*rgbState/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Chromatic Aberration + Motion Blur
+// ---------------------------------------------------------------------------
+
+describe('scene.js chromatic aberration + motion blur', () => {
+  it('imports ShaderPass', () => {
+    assert.match(scene, /import.*ShaderPass.*from.*three\/addons\/postprocessing\/ShaderPass/);
+  });
+
+  it('has ChromaticAberrationShader definition', () => {
+    assert.match(scene, /ChromaticAberrationShader/);
+    assert.match(scene, /amount/);
+  });
+
+  it('has MotionBlurShader definition', () => {
+    assert.match(scene, /MotionBlurShader/);
+    assert.match(scene, /direction/);
+  });
+
+  it('creates chromaPass and motionBlurPass in pipeline', () => {
+    assert.match(scene, /chromaPass/);
+    assert.match(scene, /motionBlurPass/);
+  });
+
+  it('chromatic aberration scales with speed and RGB', () => {
+    assert.match(scene, /chromaPass\.uniforms\.amount\.value/);
+  });
+
+  it('motion blur activates during boost', () => {
+    assert.match(scene, /motionBlurPass\.uniforms\.strength\.value/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Sonic Boom Shockwave
+// ---------------------------------------------------------------------------
+
+describe('scene.js sonic boom shockwave', () => {
+  it('has shockwave pool with torus geometry', () => {
+    assert.match(scene, /createShockwavePool/);
+    assert.match(scene, /TorusGeometry/);
+  });
+
+  it('has triggerShockwave and updateShockwaves', () => {
+    assert.match(scene, /triggerShockwave/);
+    assert.match(scene, /updateShockwaves/);
+  });
+
+  it('triggers sonic boom at speed threshold', () => {
+    assert.match(scene, /sonicBoomFired/);
+    assert.match(scene, /SONIC BOOM/);
+  });
+
+  it('shockwave triggers on barrel roll and flip completion', () => {
+    assert.match(scene, /prevRollActive/);
+    assert.match(scene, /prevFlipActive/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Missiles + Explosions
+// ---------------------------------------------------------------------------
+
+describe('scene.js missiles + explosions', () => {
+  it('has missile pool system', () => {
+    assert.match(scene, /createMissilePool/);
+    assert.match(scene, /fireMissile/);
+    assert.match(scene, /updateMissiles/);
+  });
+
+  it('has F key input for firing', () => {
+    assert.match(scene, /fireRequested/);
+    assert.match(scene, /KeyF/);
+  });
+
+  it('missiles have homing toward targets', () => {
+    assert.match(scene, /toTarget/);
+    assert.match(scene, /\.lerp\(toTarget/);
+  });
+
+  it('has explosion pool system', () => {
+    assert.match(scene, /createExplosionPool/);
+    assert.match(scene, /triggerExplosion/);
+    assert.match(scene, /updateExplosions/);
+  });
+
+  it('asteroid destruction with action text', () => {
+    assert.match(scene, /DESTROYED/);
+    assert.match(scene, /OBLITERATED/);
+  });
+
+  it('explosion triggers screen shake', () => {
+    assert.match(scene, /explosionShake/);
+  });
+
+  it('HUD shows F to fire', () => {
+    assert.match(html, /F to fire/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Sound Design (Web Audio API)
+// ---------------------------------------------------------------------------
+
+describe('scene.js sound design', () => {
+  it('has sound engine with AudioContext', () => {
+    assert.match(scene, /createSoundEngine/);
+    assert.match(scene, /AudioContext/);
+  });
+
+  it('has engine hum with oscillators', () => {
+    assert.match(scene, /updateEngineSound/);
+    assert.match(scene, /sawtooth/);
+  });
+
+  it('has boost sound', () => {
+    assert.match(scene, /triggerBoostSound/);
+  });
+
+  it('has barrel roll sound', () => {
+    assert.match(scene, /triggerRollSound/);
+  });
+
+  it('has flip sound', () => {
+    assert.match(scene, /triggerFlipSound/);
+  });
+
+  it('has missile sound', () => {
+    assert.match(scene, /triggerMissileSound/);
+  });
+
+  it('has explosion sound', () => {
+    assert.match(scene, /triggerExplosionSound/);
+  });
+
+  it('master gain scales with RGB', () => {
+    assert.match(scene, /masterGain\.gain/);
+  });
+});

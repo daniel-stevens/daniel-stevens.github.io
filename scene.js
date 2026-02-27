@@ -5,6 +5,52 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+
+// ---------------------------------------------------------------------------
+// Custom shaders
+// ---------------------------------------------------------------------------
+
+const ChromaticAberrationShader = {
+  uniforms: {
+    tDiffuse: { value: null },
+    amount: { value: 0.0 },
+  },
+  vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+  fragmentShader: `
+    uniform sampler2D tDiffuse;
+    uniform float amount;
+    varying vec2 vUv;
+    void main() {
+      vec2 dir = vUv - vec2(0.5);
+      float r = texture2D(tDiffuse, vUv + dir * amount).r;
+      float g = texture2D(tDiffuse, vUv).g;
+      float b = texture2D(tDiffuse, vUv - dir * amount).b;
+      gl_FragColor = vec4(r, g, b, 1.0);
+    }`,
+};
+
+const MotionBlurShader = {
+  uniforms: {
+    tDiffuse: { value: null },
+    strength: { value: 0.0 },
+    direction: { value: new THREE.Vector2(0, 0) },
+  },
+  vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+  fragmentShader: `
+    uniform sampler2D tDiffuse;
+    uniform float strength;
+    uniform vec2 direction;
+    varying vec2 vUv;
+    void main() {
+      vec4 color = vec4(0.0);
+      vec2 d = direction * strength;
+      for (int i = -4; i <= 4; i++) {
+        color += texture2D(tDiffuse, vUv + d * float(i));
+      }
+      gl_FragColor = color / 9.0;
+    }`,
+};
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -146,7 +192,7 @@ function createInputState(canvas) {
     forward: false, backward: false, left: false, right: false,
     boost: false, mouseX: 0, mouseY: 0, active: false,
     lastLeftTap: 0, lastRightTap: 0, leftTapped: false, rightTapped: false,
-    flipRequested: false,
+    flipRequested: false, fireRequested: false,
   };
 
   window.addEventListener('keydown', (e) => {
@@ -158,6 +204,7 @@ function createInputState(canvas) {
       case 'KeyD': case 'ArrowRight': input.right = true; input.rightTapped = true; break;
       case 'Space': input.boost = true; e.preventDefault(); break;
       case 'KeyQ': input.flipRequested = true; break;
+      case 'KeyF': input.fireRequested = true; break;
     }
   });
 
@@ -337,13 +384,18 @@ function initThreeScene(canvas) {
   const contrailL = createContrail(scene, -8);
   const contrailR = createContrail(scene, 8);
   const warpTunnel = createWarpTunnel(scene);
+  const shockwaves = createShockwavePool(scene);
+  const missiles = createMissilePool(scene);
+  const explosions = createExplosionPool(scene);
+  const sound = createSoundEngine();
 
   const elements = {
     stars, ambient, titleMesh: null, tagMeshes: [], linkMeshes: [],
     bookGroup, thruster, engineGlowL, engineGlowR,
     speedLines, boostFlash, rainbowTrail, minimapCtx, flipBurst,
     asteroids, nebulae, shield, contrailL, contrailR, warpTunnel,
-    bloomPass: null,
+    shockwaves, missiles, explosions, sound,
+    bloomPass: null, chromaPass: null, motionBlurPass: null,
   };
 
   // Post-processing
@@ -359,7 +411,13 @@ function initThreeScene(canvas) {
       0.15, 0.1, 0.85
     );
     composer.addPass(bloomPass);
+    const chromaPass = new ShaderPass(ChromaticAberrationShader);
+    composer.addPass(chromaPass);
+    const motionBlurPass = new ShaderPass(MotionBlurShader);
+    composer.addPass(motionBlurPass);
     composer.addPass(new OutputPass());
+    elements.chromaPass = chromaPass;
+    elements.motionBlurPass = motionBlurPass;
     renderFn = () => composer.render();
   } catch (e) {
     console.warn('Post-processing failed, using basic renderer:', e);
@@ -390,6 +448,7 @@ function initThreeScene(canvas) {
     introActive: true, introStart: performance.now(), hudShown: false, prevBoost: false, minimapFrame: 0,
     barrelRoll: { active: false, direction: 1, startTime: 0, duration: 0.6, comboCount: 0, lastRollEnd: 0 },
     flip: { active: false, startTime: 0, startRotY: 0, duration: 0.8, cameraOffset: 0 },
+    sonicBoomFired: false, explosionShake: 0, prevRollActive: false, prevFlipActive: false,
   };
   startAnimationLoop(renderFn, elements, camera, shipGroup, physics, input, state, lights, rgbState);
   setupResize(camera, renderer, composer, bloomPass);
@@ -1657,6 +1716,288 @@ function updateWarpTunnel(tunnel, camera, shipGroup, physics, input, elapsed, de
 }
 
 // ---------------------------------------------------------------------------
+// Sonic boom shockwave
+// ---------------------------------------------------------------------------
+
+function createShockwavePool(scene) {
+  const meshes = [];
+  const states = [];
+  for (let i = 0; i < 3; i++) {
+    const geo = new THREE.TorusGeometry(1, 0.15, 8, 64);
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xaaddff, transparent: true, opacity: 0,
+      blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.visible = false;
+    scene.add(mesh);
+    meshes.push(mesh);
+    states.push({ active: false, startTime: 0, position: new THREE.Vector3() });
+  }
+  return { meshes, states };
+}
+
+function triggerShockwave(pool, position, elapsed) {
+  for (let i = 0; i < pool.states.length; i++) {
+    if (!pool.states[i].active) {
+      pool.states[i].active = true;
+      pool.states[i].startTime = elapsed;
+      pool.states[i].position.copy(position);
+      pool.meshes[i].visible = true;
+      pool.meshes[i].position.copy(position);
+      pool.meshes[i].scale.setScalar(1);
+      return;
+    }
+  }
+}
+
+function updateShockwaves(pool, elapsed, rgb) {
+  const duration = 0.6;
+  for (let i = 0; i < pool.states.length; i++) {
+    const s = pool.states[i];
+    if (!s.active) continue;
+    const t = (elapsed - s.startTime) / duration;
+    if (t >= 1) {
+      s.active = false;
+      pool.meshes[i].visible = false;
+      pool.meshes[i].material.opacity = 0;
+      continue;
+    }
+    const scale = 1 + t * 39;
+    pool.meshes[i].scale.setScalar(scale);
+    pool.meshes[i].material.opacity = 0.7 * rgb * (1 - t);
+    // Rotate to face camera direction
+    pool.meshes[i].lookAt(pool.meshes[i].position.clone().add(new THREE.Vector3(0, 0, 1)));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Missile system
+// ---------------------------------------------------------------------------
+
+function createMissilePool(scene) {
+  const count = 6;
+  const meshes = [];
+  const states = [];
+  const trails = [];
+
+  for (let i = 0; i < count; i++) {
+    const geo = new THREE.ConeGeometry(0.15, 0.8, 6);
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xffaa44, transparent: true, opacity: 0,
+      blending: THREE.AdditiveBlending,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.visible = false;
+    scene.add(mesh);
+    meshes.push(mesh);
+    states.push({ active: false, position: new THREE.Vector3(), velocity: new THREE.Vector3(), target: null, lifetime: 0 });
+
+    // Mini trail per missile
+    const trailCount = 30;
+    const tPos = new Float32Array(trailCount * 3);
+    const tGeo = new THREE.BufferGeometry();
+    tGeo.setAttribute('position', new THREE.BufferAttribute(tPos, 3));
+    const tMat = new THREE.PointsMaterial({
+      size: 0.3, color: 0xff6622, transparent: true, opacity: 0.6,
+      blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true,
+    });
+    const tMesh = new THREE.Points(tGeo, tMat);
+    scene.add(tMesh);
+    trails.push({ mesh: tMesh, positions: tPos, count: trailCount, head: 0 });
+  }
+
+  return { meshes, states, trails, count };
+}
+
+function fireMissile(pool, shipGroup, physics, asteroids) {
+  for (let i = 0; i < pool.count; i++) {
+    if (!pool.states[i].active) {
+      const s = pool.states[i];
+      s.active = true;
+      s.lifetime = 5;
+
+      const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(shipGroup.quaternion);
+      s.position.copy(shipGroup.position).addScaledVector(fwd, 3);
+      s.velocity.copy(fwd).multiplyScalar(physics.speed + 20);
+
+      pool.meshes[i].visible = true;
+      pool.meshes[i].material.opacity = 1;
+
+      // Find nearest asteroid target
+      s.target = null;
+      let minDist = 100;
+      if (asteroids) {
+        asteroids.meshes.forEach((m) => {
+          const d = m.position.distanceTo(s.position);
+          if (d < minDist) { minDist = d; s.target = m; }
+        });
+      }
+
+      // Reset trail
+      pool.trails[i].positions.fill(0);
+      pool.trails[i].head = 0;
+      return;
+    }
+  }
+}
+
+function updateMissiles(pool, asteroids, shipGroup, elapsed, delta, shockwaves, explosions, rgb) {
+  for (let i = 0; i < pool.count; i++) {
+    const s = pool.states[i];
+    if (!s.active) continue;
+
+    s.lifetime -= delta;
+
+    // Homing toward target
+    if (s.target && s.target.visible !== false) {
+      const toTarget = new THREE.Vector3().subVectors(s.target.position, s.position).normalize();
+      const speed = s.velocity.length();
+      s.velocity.normalize().lerp(toTarget, 3 * delta).normalize().multiplyScalar(speed);
+    }
+
+    // Move
+    s.position.addScaledVector(s.velocity, delta);
+    pool.meshes[i].position.copy(s.position);
+    pool.meshes[i].lookAt(s.position.clone().add(s.velocity));
+
+    // Trail breadcrumb
+    const t = pool.trails[i];
+    t.positions[t.head * 3] = s.position.x;
+    t.positions[t.head * 3 + 1] = s.position.y;
+    t.positions[t.head * 3 + 2] = s.position.z;
+    t.head = (t.head + 1) % t.count;
+    t.mesh.geometry.attributes.position.needsUpdate = true;
+
+    // Hit detection — proximity to asteroids
+    let hit = false;
+    if (asteroids) {
+      for (let a = 0; a < asteroids.meshes.length; a++) {
+        const am = asteroids.meshes[a];
+        const hitDist = (am.userData.size || 1) + 1;
+        if (am.position.distanceTo(s.position) < hitDist) {
+          hit = true;
+          triggerExplosion(explosions, am.position.clone(), rgb);
+          triggerShockwave(shockwaves, am.position.clone(), elapsed);
+          // Respawn asteroid elsewhere
+          const theta = Math.random() * Math.PI * 2;
+          const phi = Math.acos(2 * Math.random() - 1);
+          const r = 80 + Math.random() * 70;
+          am.position.set(
+            shipGroup.position.x + r * Math.sin(phi) * Math.cos(theta),
+            shipGroup.position.y + r * Math.sin(phi) * Math.sin(theta),
+            shipGroup.position.z + r * Math.cos(phi)
+          );
+          const texts = ['DESTROYED!', 'OBLITERATED!', 'ANNIHILATED!', 'VAPORIZED!'];
+          showActionText(texts[Math.floor(Math.random() * texts.length)]);
+          break;
+        }
+      }
+    }
+
+    // Timeout or hit — explode
+    if (s.lifetime <= 0 || hit) {
+      if (!hit) triggerExplosion(explosions, s.position.clone(), rgb);
+      s.active = false;
+      pool.meshes[i].visible = false;
+      pool.meshes[i].material.opacity = 0;
+      pool.trails[i].positions.fill(0);
+      pool.trails[i].mesh.geometry.attributes.position.needsUpdate = true;
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Explosion system
+// ---------------------------------------------------------------------------
+
+function createExplosionPool(scene) {
+  const poolSize = 4;
+  const particleCount = 200;
+  const instances = [];
+
+  for (let p = 0; p < poolSize; p++) {
+    const positions = new Float32Array(particleCount * 3);
+    const velocities = new Float32Array(particleCount * 3);
+    const lifetimes = new Float32Array(particleCount);
+    const colors = new Float32Array(particleCount * 3);
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+    const mat = new THREE.PointsMaterial({
+      size: 0.8, vertexColors: true, transparent: true, opacity: 0,
+      blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true,
+    });
+    const mesh = new THREE.Points(geo, mat);
+    scene.add(mesh);
+    instances.push({ mesh, positions, velocities, lifetimes, colors, count: particleCount, active: false });
+  }
+
+  return { instances };
+}
+
+function triggerExplosion(pool, position, rgb) {
+  for (let i = 0; i < pool.instances.length; i++) {
+    const inst = pool.instances[i];
+    if (!inst.active) {
+      inst.active = true;
+      inst.mesh.material.opacity = 0.9;
+      for (let p = 0; p < inst.count; p++) {
+        inst.positions[p * 3] = position.x;
+        inst.positions[p * 3 + 1] = position.y;
+        inst.positions[p * 3 + 2] = position.z;
+
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.acos(2 * Math.random() - 1);
+        const speed = 8 + Math.random() * 20;
+        inst.velocities[p * 3] = speed * Math.sin(phi) * Math.cos(theta);
+        inst.velocities[p * 3 + 1] = speed * Math.sin(phi) * Math.sin(theta);
+        inst.velocities[p * 3 + 2] = speed * Math.cos(phi);
+
+        inst.lifetimes[p] = 0.5 + Math.random() * 0.5;
+
+        // Orange/yellow/white colors
+        const rr = Math.random();
+        inst.colors[p * 3] = 1.0;
+        inst.colors[p * 3 + 1] = 0.3 + rr * 0.7;
+        inst.colors[p * 3 + 2] = rr > 0.7 ? 0.8 : rr * 0.3;
+      }
+      return;
+    }
+  }
+}
+
+function updateExplosions(pool, delta) {
+  pool.instances.forEach((inst) => {
+    if (!inst.active) return;
+    let anyAlive = false;
+    for (let p = 0; p < inst.count; p++) {
+      if (inst.lifetimes[p] > 0) {
+        anyAlive = true;
+        inst.lifetimes[p] -= delta;
+        inst.positions[p * 3] += inst.velocities[p * 3] * delta;
+        inst.positions[p * 3 + 1] += inst.velocities[p * 3 + 1] * delta;
+        inst.positions[p * 3 + 2] += inst.velocities[p * 3 + 2] * delta;
+        // Drag
+        inst.velocities[p * 3] *= 0.97;
+        inst.velocities[p * 3 + 1] *= 0.97;
+        inst.velocities[p * 3 + 2] *= 0.97;
+      }
+    }
+    inst.mesh.geometry.attributes.position.needsUpdate = true;
+    inst.mesh.geometry.attributes.color.needsUpdate = true;
+    if (!anyAlive) {
+      inst.active = false;
+      inst.mesh.material.opacity = 0;
+    } else {
+      inst.mesh.material.opacity *= 0.98;
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Barrel roll
 // ---------------------------------------------------------------------------
 
@@ -2006,6 +2347,211 @@ function updateMinimap(ctx, shipGroup, bookGroup, asteroids, nebulae, elapsed) {
 }
 
 // ---------------------------------------------------------------------------
+// Sound engine (Web Audio API — all procedural, no audio files)
+// ---------------------------------------------------------------------------
+
+function createSoundEngine() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const masterGain = ctx.createGain();
+    masterGain.gain.value = 0.3;
+    masterGain.connect(ctx.destination);
+
+    // Engine hum — two low-frequency oscillators
+    const engineGainL = ctx.createGain();
+    engineGainL.gain.value = 0;
+    const panL = ctx.createStereoPanner();
+    panL.pan.value = -0.6;
+    const filterL = ctx.createBiquadFilter();
+    filterL.type = 'lowpass';
+    filterL.frequency.value = 200;
+    const oscL = ctx.createOscillator();
+    oscL.type = 'sawtooth';
+    oscL.frequency.value = 60;
+    oscL.connect(filterL);
+    filterL.connect(engineGainL);
+    engineGainL.connect(panL);
+    panL.connect(masterGain);
+    oscL.start();
+
+    const engineGainR = ctx.createGain();
+    engineGainR.gain.value = 0;
+    const panR = ctx.createStereoPanner();
+    panR.pan.value = 0.6;
+    const filterR = ctx.createBiquadFilter();
+    filterR.type = 'lowpass';
+    filterR.frequency.value = 200;
+    const oscR = ctx.createOscillator();
+    oscR.type = 'sawtooth';
+    oscR.frequency.value = 90;
+    oscR.connect(filterR);
+    filterR.connect(engineGainR);
+    engineGainR.connect(panR);
+    panR.connect(masterGain);
+    oscR.start();
+
+    return {
+      ctx, masterGain,
+      engines: { oscL, oscR, gainL: engineGainL, gainR: engineGainR },
+    };
+  } catch (e) {
+    console.warn('Web Audio not available:', e);
+    return null;
+  }
+}
+
+function updateEngineSound(sound, physics, rgb) {
+  if (!sound || sound.ctx.state !== 'running') return;
+  const speedRatio = physics.speed / physics.maxSpeed;
+  const vol = speedRatio * 0.15 * rgb;
+  sound.engines.gainL.gain.value += (vol - sound.engines.gainL.gain.value) * 0.1;
+  sound.engines.gainR.gain.value += (vol - sound.engines.gainR.gain.value) * 0.1;
+  sound.engines.oscL.frequency.value = 60 * (1 + speedRatio * 0.5);
+  sound.engines.oscR.frequency.value = 90 * (1 + speedRatio * 0.5);
+  // Master gain scales with RGB
+  sound.masterGain.gain.value = 0.1 + rgb * 0.4;
+}
+
+function triggerBoostSound(sound) {
+  if (!sound || sound.ctx.state !== 'running') return;
+  const ctx = sound.ctx;
+  const bufferSize = ctx.sampleRate * 0.5;
+  const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+  const noise = ctx.createBufferSource();
+  noise.buffer = buffer;
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'bandpass';
+  filter.frequency.value = 1000;
+  filter.Q.value = 0.5;
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0.3, ctx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.5);
+  noise.connect(filter);
+  filter.connect(gain);
+  gain.connect(sound.masterGain);
+  noise.start();
+  noise.stop(ctx.currentTime + 1.5);
+}
+
+function triggerRollSound(sound, direction) {
+  if (!sound || sound.ctx.state !== 'running') return;
+  const ctx = sound.ctx;
+  const osc = ctx.createOscillator();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(200, ctx.currentTime);
+  osc.frequency.linearRampToValueAtTime(800, ctx.currentTime + 0.3);
+  osc.frequency.linearRampToValueAtTime(200, ctx.currentTime + 0.6);
+  const pan = ctx.createStereoPanner();
+  pan.pan.setValueAtTime(direction * -0.8, ctx.currentTime);
+  pan.pan.linearRampToValueAtTime(direction * 0.8, ctx.currentTime + 0.6);
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0.15, ctx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.7);
+  osc.connect(pan);
+  pan.connect(gain);
+  gain.connect(sound.masterGain);
+  osc.start();
+  osc.stop(ctx.currentTime + 0.7);
+}
+
+function triggerFlipSound(sound) {
+  if (!sound || sound.ctx.state !== 'running') return;
+  const ctx = sound.ctx;
+  // Low boom
+  const osc = ctx.createOscillator();
+  osc.type = 'sine';
+  osc.frequency.value = 40;
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0.4, ctx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+  osc.connect(gain);
+  gain.connect(sound.masterGain);
+  osc.start();
+  osc.stop(ctx.currentTime + 0.5);
+  // Noise burst
+  const bufferSize = ctx.sampleRate * 0.3;
+  const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+  const noise = ctx.createBufferSource();
+  noise.buffer = buffer;
+  const nGain = ctx.createGain();
+  nGain.gain.setValueAtTime(0.15, ctx.currentTime);
+  nGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+  noise.connect(nGain);
+  nGain.connect(sound.masterGain);
+  noise.start();
+  noise.stop(ctx.currentTime + 0.3);
+}
+
+function triggerMissileSound(sound) {
+  if (!sound || sound.ctx.state !== 'running') return;
+  const ctx = sound.ctx;
+  const osc = ctx.createOscillator();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(200, ctx.currentTime);
+  osc.frequency.exponentialRampToValueAtTime(2000, ctx.currentTime + 0.3);
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0.2, ctx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+  osc.connect(gain);
+  gain.connect(sound.masterGain);
+  osc.start();
+  osc.stop(ctx.currentTime + 0.4);
+  // Noise overlay
+  const bufferSize = ctx.sampleRate * 0.2;
+  const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+  const noise = ctx.createBufferSource();
+  noise.buffer = buffer;
+  const nGain = ctx.createGain();
+  nGain.gain.setValueAtTime(0.1, ctx.currentTime);
+  nGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
+  noise.connect(nGain);
+  nGain.connect(sound.masterGain);
+  noise.start();
+  noise.stop(ctx.currentTime + 0.2);
+}
+
+function triggerExplosionSound(sound) {
+  if (!sound || sound.ctx.state !== 'running') return;
+  const ctx = sound.ctx;
+  // Deep boom
+  const osc = ctx.createOscillator();
+  osc.type = 'sine';
+  osc.frequency.value = 30;
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0.5, ctx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.8);
+  osc.connect(gain);
+  gain.connect(sound.masterGain);
+  osc.start();
+  osc.stop(ctx.currentTime + 0.8);
+  // Noise crash
+  const bufferSize = ctx.sampleRate * 0.5;
+  const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+  const noise = ctx.createBufferSource();
+  noise.buffer = buffer;
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'bandpass';
+  filter.frequency.value = 300;
+  filter.Q.value = 0.3;
+  const nGain = ctx.createGain();
+  nGain.gain.setValueAtTime(0.3, ctx.currentTime);
+  nGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+  noise.connect(filter);
+  filter.connect(nGain);
+  nGain.connect(sound.masterGain);
+  noise.start();
+  noise.stop(ctx.currentTime + 0.5);
+}
+
+// ---------------------------------------------------------------------------
 // HUD
 // ---------------------------------------------------------------------------
 
@@ -2085,6 +2631,7 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
         const now = performance.now();
         if (now - input.lastLeftTap < 250 && !state.barrelRoll.active && !state.flip.active) {
           triggerBarrelRoll(state, 1, elapsed, physics, shipGroup);
+          triggerRollSound(elements.sound, 1);
         }
         input.lastLeftTap = now;
       }
@@ -2093,6 +2640,7 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
         const now = performance.now();
         if (now - input.lastRightTap < 250 && !state.barrelRoll.active && !state.flip.active) {
           triggerBarrelRoll(state, -1, elapsed, physics, shipGroup);
+          triggerRollSound(elements.sound, -1);
         }
         input.lastRightTap = now;
       }
@@ -2102,7 +2650,15 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
         input.flipRequested = false;
         if (!state.flip.active && !state.barrelRoll.active) {
           triggerFlip(state, shipGroup, elapsed);
+          triggerFlipSound(elements.sound);
         }
+      }
+
+      // Missile fire (F key)
+      if (input.fireRequested) {
+        input.fireRequested = false;
+        fireMissile(elements.missiles, shipGroup, physics, elements.asteroids);
+        triggerMissileSound(elements.sound);
       }
 
       // Suppress turning during roll/flip
@@ -2151,6 +2707,22 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
       const targetFov = 60 + (physics.speed / physics.maxSpeed) * 15 + (input.boost ? 10 : 0);
       camera.fov += (targetFov - camera.fov) * 0.05;
       camera.updateProjectionMatrix();
+
+      // Chromatic aberration — scales with speed and RGB
+      if (elements.chromaPass) {
+        elements.chromaPass.uniforms.amount.value = (physics.speed / physics.maxSpeed) * 0.008 * rgb;
+      }
+
+      // Motion blur — only during boost, scales with RGB
+      if (elements.motionBlurPass) {
+        const blurStrength = input.boost ? 0.003 * rgb : 0;
+        elements.motionBlurPass.uniforms.strength.value = blurStrength;
+        if (blurStrength > 0) {
+          const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(shipGroup.quaternion);
+          fwd.project(camera);
+          elements.motionBlurPass.uniforms.direction.value.set(fwd.x, fwd.y).normalize();
+        }
+      }
 
       // Thruster particles (world space)
       updateThrusterParticles(elements.thruster, shipGroup, physics, input, delta);
@@ -2211,8 +2783,11 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
         elements.speedLines.mesh.material.color.setHex(0xaaccff);
       }
 
-      // Boost flash (triggers on boost start)
-      if (input.boost && !state.prevBoost) triggerBoostFlash(elements.boostFlash);
+      // Boost flash + sound (triggers on boost start)
+      if (input.boost && !state.prevBoost) {
+        triggerBoostFlash(elements.boostFlash);
+        triggerBoostSound(elements.sound);
+      }
       state.prevBoost = input.boost;
       updateBoostFlash(elements.boostFlash, delta);
       // Scale boost flash by RGB
@@ -2228,9 +2803,57 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
       updateContrail(elements.contrailL, shipGroup, physics, elements.nebulae, delta, rgb);
       updateContrail(elements.contrailR, shipGroup, physics, elements.nebulae, delta, rgb);
 
+      // Sonic boom — speed threshold
+      if (physics.speed > physics.maxSpeed * 0.8 && !state.sonicBoomFired) {
+        state.sonicBoomFired = true;
+        triggerShockwave(elements.shockwaves, shipGroup.position.clone(), elapsed);
+        triggerExplosionSound(elements.sound);
+        showActionText('SONIC BOOM!');
+      }
+      if (physics.speed < physics.maxSpeed * 0.6) state.sonicBoomFired = false;
+
+      // Shockwave on barrel roll completion
+      if (state.prevRollActive && !state.barrelRoll.active) {
+        triggerShockwave(elements.shockwaves, shipGroup.position.clone(), elapsed);
+      }
+      state.prevRollActive = state.barrelRoll.active;
+
+      // Shockwave on flip completion
+      if (state.prevFlipActive && !state.flip.active) {
+        triggerShockwave(elements.shockwaves, shipGroup.position.clone(), elapsed);
+      }
+      state.prevFlipActive = state.flip.active;
+
+      // Update shockwaves
+      updateShockwaves(elements.shockwaves, elapsed, rgb);
+
+      // Missiles + explosions
+      const prevExplosionActive = elements.explosions.instances.map(i => i.active);
+      updateMissiles(elements.missiles, elements.asteroids, shipGroup, elapsed, delta, elements.shockwaves, elements.explosions, rgb);
+      // Detect new explosions for screen shake + boost flash + sound
+      elements.explosions.instances.forEach((inst, idx) => {
+        if (inst.active && !prevExplosionActive[idx]) {
+          state.explosionShake = 1;
+          triggerBoostFlash(elements.boostFlash);
+          triggerExplosionSound(elements.sound);
+        }
+      });
+      updateExplosions(elements.explosions, delta);
+
+      // Explosion screen shake
+      if (state.explosionShake > 0) {
+        const shake = 0.15 * state.explosionShake * rgb;
+        camera.position.x += (Math.random() - 0.5) * shake;
+        camera.position.y += (Math.random() - 0.5) * shake;
+        state.explosionShake -= delta * 2;
+      }
+
       // Speed HUD
       const speedHud = document.getElementById('speed-hud');
       if (speedHud) speedHud.textContent = 'SPEED: ' + Math.round(physics.speed);
+
+      // Engine sound update
+      updateEngineSound(elements.sound, physics, rgb);
 
       // Minimap (update every 2nd frame for performance)
       if (elements.minimapCtx && ++state.minimapFrame % 2 === 0) {
