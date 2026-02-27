@@ -319,3 +319,55 @@ describe('scene.js flight system', () => {
     assert.match(scene, /action-text/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Round 2 Effects
+// ---------------------------------------------------------------------------
+
+describe('scene.js round 2 effects', () => {
+  it('has asteroid field with procedural geometry', () => {
+    assert.match(scene, /createAsteroidField/);
+    assert.match(scene, /wrapAsteroids/);
+    assert.match(scene, /updateAsteroidProximity/);
+    assert.match(scene, /IcosahedronGeometry/);
+  });
+
+  it('has nebula clouds with dust interaction', () => {
+    assert.match(scene, /createNebulaClouds/);
+    assert.match(scene, /createNebulaTexture/);
+    assert.match(scene, /updateNebulaClouds/);
+    assert.match(scene, /lightningTimer/);
+  });
+
+  it('has ship shield/aura with RGB sync', () => {
+    assert.match(scene, /createShipShield/);
+    assert.match(scene, /updateShipShield/);
+    assert.match(scene, /rippleTime/);
+  });
+
+  it('has contrail trails from both engines', () => {
+    assert.match(scene, /createContrail/);
+    assert.match(scene, /updateContrail/);
+    assert.match(scene, /contrailL/);
+    assert.match(scene, /contrailR/);
+  });
+
+  it('has warp tunnel on boost', () => {
+    assert.match(scene, /createWarpTunnel/);
+    assert.match(scene, /updateWarpTunnel/);
+    assert.match(scene, /createWarpTunnelTexture/);
+    assert.match(scene, /pulseRings/);
+  });
+
+  it('warp tunnel modulates bloom threshold', () => {
+    assert.match(scene, /bloomPass\.threshold/);
+  });
+
+  it('minimap shows asteroids and nebulae', () => {
+    assert.match(scene, /updateMinimap\([^)]*asteroids/);
+  });
+
+  it('has easeOutElastic utility', () => {
+    assert.match(scene, /easeOutElastic/);
+  });
+});

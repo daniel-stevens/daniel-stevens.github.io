@@ -330,10 +330,20 @@ function initThreeScene(canvas) {
   const minimapCtx = initMinimap();
   const flipBurst = createFlipBurst(scene);
 
+  // Round 2 effects
+  const asteroids = createAsteroidField(scene);
+  const nebulae = createNebulaClouds(scene);
+  const shield = createShipShield(shipGroup);
+  const contrailL = createContrail(scene, -8);
+  const contrailR = createContrail(scene, 8);
+  const warpTunnel = createWarpTunnel(scene);
+
   const elements = {
     stars, ambient, titleMesh: null, tagMeshes: [], linkMeshes: [],
     bookGroup, thruster, engineGlowL, engineGlowR,
     speedLines, boostFlash, rainbowTrail, minimapCtx, flipBurst,
+    asteroids, nebulae, shield, contrailL, contrailR, warpTunnel,
+    bloomPass: null,
   };
 
   // Post-processing
@@ -357,6 +367,8 @@ function initThreeScene(canvas) {
     renderer.toneMappingExposure = 1.2;
     renderFn = () => renderer.render(scene, camera);
   }
+
+  elements.bloomPass = bloomPass;
 
   // Input + Physics
   const input = createInputState(canvas);
@@ -1000,6 +1012,633 @@ function wrapBooks(bookGroup, shipPos) {
 }
 
 // ---------------------------------------------------------------------------
+// Asteroid field
+// ---------------------------------------------------------------------------
+
+function createAsteroidField(scene) {
+  const count = isMobile ? 20 : 35;
+  const meshes = [];
+  const rotationSpeeds = new Float32Array(count * 3);
+  const sizes = new Float32Array(count);
+
+  const materials = [
+    // Rocky
+    new THREE.MeshStandardMaterial({ color: 0x444444, roughness: 0.95, metalness: 0.1 }),
+    // Metallic
+    new THREE.MeshStandardMaterial({ color: 0x888899, roughness: 0.3, metalness: 0.8 }),
+    // Crystal
+    new THREE.MeshStandardMaterial({ color: 0x3344aa, roughness: 0.2, metalness: 0.6, emissive: 0x111133, emissiveIntensity: 0.3 }),
+  ];
+
+  for (let i = 0; i < count; i++) {
+    const roll = Math.random();
+    const size = roll < 0.6 ? 0.3 + Math.random() * 0.7
+               : roll < 0.9 ? 1 + Math.random() * 3
+               : 4 + Math.random() * 4;
+    sizes[i] = size;
+
+    const detail = size > 3 ? 1 : 0;
+    const geo = new THREE.IcosahedronGeometry(size, detail);
+    const posArr = geo.attributes.position.array;
+    for (let v = 0; v < posArr.length; v += 3) {
+      const factor = 1 + (Math.random() - 0.5) * 0.4;
+      posArr[v] *= factor;
+      posArr[v + 1] *= factor;
+      posArr[v + 2] *= factor;
+    }
+    geo.computeVertexNormals();
+
+    const mat = materials[Math.floor(Math.random() * 3)];
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(
+      (Math.random() - 0.5) * 250,
+      (Math.random() - 0.5) * 160,
+      -Math.random() * 250
+    );
+    mesh.userData.size = size;
+    scene.add(mesh);
+    meshes.push(mesh);
+
+    const speedScale = 1 / Math.max(size, 1);
+    rotationSpeeds[i * 3] = (0.1 + Math.random() * 1.4) * speedScale;
+    rotationSpeeds[i * 3 + 1] = (0.1 + Math.random() * 1.4) * speedScale;
+    rotationSpeeds[i * 3 + 2] = (0.1 + Math.random() * 1.4) * speedScale;
+  }
+
+  // Debris particles
+  const debrisCount = isMobile ? 100 : 200;
+  const debrisPos = new Float32Array(debrisCount * 3);
+  const debrisColors = new Float32Array(debrisCount * 3);
+  for (let i = 0; i < debrisCount; i++) {
+    const ref = meshes[Math.floor(Math.random() * meshes.length)];
+    debrisPos[i * 3] = ref.position.x + (Math.random() - 0.5) * 6;
+    debrisPos[i * 3 + 1] = ref.position.y + (Math.random() - 0.5) * 6;
+    debrisPos[i * 3 + 2] = ref.position.z + (Math.random() - 0.5) * 6;
+    const grey = 0.3 + Math.random() * 0.3;
+    debrisColors[i * 3] = grey;
+    debrisColors[i * 3 + 1] = grey;
+    debrisColors[i * 3 + 2] = grey;
+  }
+  const debrisGeo = new THREE.BufferGeometry();
+  debrisGeo.setAttribute('position', new THREE.BufferAttribute(debrisPos, 3));
+  debrisGeo.setAttribute('color', new THREE.BufferAttribute(debrisColors, 3));
+  const debrisMat = new THREE.PointsMaterial({
+    size: 0.15, vertexColors: true, transparent: true, opacity: 0.15, depthWrite: false,
+  });
+  const debris = new THREE.Points(debrisGeo, debrisMat);
+  scene.add(debris);
+
+  const proximityLight = new THREE.PointLight(0xff2222, 0, 20);
+  scene.add(proximityLight);
+
+  return { meshes, rotationSpeeds, sizes, debris, proximityLight, count };
+}
+
+function wrapAsteroids(asteroids, shipPos) {
+  asteroids.meshes.forEach((mesh) => {
+    const dist = mesh.position.distanceTo(shipPos);
+    if (dist > 150) {
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(2 * Math.random() - 1);
+      const r = 80 + Math.random() * 70;
+      mesh.position.set(
+        shipPos.x + r * Math.sin(phi) * Math.cos(theta),
+        shipPos.y + r * Math.sin(phi) * Math.sin(theta),
+        shipPos.z + r * Math.cos(phi)
+      );
+    }
+  });
+
+  // Drift debris slightly
+  const dPos = asteroids.debris.geometry.attributes.position.array;
+  for (let i = 0; i < dPos.length; i += 3) {
+    const dx = dPos[i] - shipPos.x;
+    const dy = dPos[i + 1] - shipPos.y;
+    const dz = dPos[i + 2] - shipPos.z;
+    if (dx * dx + dy * dy + dz * dz > 150 * 150) {
+      const ref = asteroids.meshes[Math.floor(Math.random() * asteroids.meshes.length)];
+      dPos[i] = ref.position.x + (Math.random() - 0.5) * 6;
+      dPos[i + 1] = ref.position.y + (Math.random() - 0.5) * 6;
+      dPos[i + 2] = ref.position.z + (Math.random() - 0.5) * 6;
+    }
+  }
+  asteroids.debris.geometry.attributes.position.needsUpdate = true;
+}
+
+function updateAsteroidProximity(asteroids, shipGroup) {
+  let closestDist = Infinity;
+  let closestPos = null;
+
+  asteroids.meshes.forEach((mesh) => {
+    if (mesh.userData.size < 3) return;
+    const dist = mesh.position.distanceTo(shipGroup.position);
+    if (dist < closestDist) {
+      closestDist = dist;
+      closestPos = mesh.position;
+    }
+  });
+
+  if (closestPos && closestDist < 8) {
+    asteroids.proximityLight.position.copy(closestPos);
+    const target = 80 * (1 - closestDist / 8);
+    asteroids.proximityLight.intensity += (target - asteroids.proximityLight.intensity) * 0.1;
+  } else {
+    asteroids.proximityLight.intensity *= 0.9;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Nebula clouds
+// ---------------------------------------------------------------------------
+
+function createNebulaTexture(color) {
+  const c = document.createElement('canvas');
+  c.width = 256; c.height = 256;
+  const ctx = c.getContext('2d');
+  const grad = ctx.createRadialGradient(128, 128, 0, 128, 128, 128);
+  grad.addColorStop(0, '#ffffff');
+  grad.addColorStop(0.3, color);
+  const rgb = parseInt(color.slice(1), 16);
+  const r = (rgb >> 16) & 0xff, g = (rgb >> 8) & 0xff, b = rgb & 0xff;
+  grad.addColorStop(0.5, `rgba(${r},${g},${b},0.5)`);
+  grad.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 256, 256);
+  return new THREE.CanvasTexture(c);
+}
+
+function createNebulaClouds(scene) {
+  const count = isMobile ? 15 : 25;
+  const palette = ['#6B2FA0', '#1A6BFF', '#FF2D95', '#00E5FF', '#FF8800'];
+  const clouds = [];
+
+  for (let i = 0; i < count; i++) {
+    const color = palette[Math.floor(Math.random() * palette.length)];
+    const baseScale = 25 + Math.random() * 45;
+    const pos = new THREE.Vector3(
+      (Math.random() - 0.5) * 300,
+      (Math.random() - 0.5) * 200,
+      -Math.random() * 300
+    );
+
+    const sprites = [];
+    const scales = [1.0, 0.8, 0.6];
+    const opacities = [0.04, 0.06, 0.08];
+    for (let j = 0; j < 3; j++) {
+      const mat = new THREE.SpriteMaterial({
+        map: createNebulaTexture(color),
+        transparent: true,
+        opacity: opacities[j],
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+      const sprite = new THREE.Sprite(mat);
+      sprite.position.set(
+        pos.x + (Math.random() - 0.5) * 3,
+        pos.y + (Math.random() - 0.5) * 3,
+        pos.z + (Math.random() - 0.5) * 3
+      );
+      sprite.scale.setScalar(baseScale * scales[j]);
+      scene.add(sprite);
+      sprites.push(sprite);
+    }
+
+    const light = new THREE.PointLight(new THREE.Color(color).getHex(), 0, 40);
+    light.position.copy(pos);
+    scene.add(light);
+
+    clouds.push({
+      sprites, baseScale, color: new THREE.Color(color), pos,
+      lightningTimer: 2 + Math.random() * 6,
+      baseOpacities: opacities.slice(), light,
+    });
+  }
+
+  // Dust pool
+  const dustCount = isMobile ? 50 : 100;
+  const dustPositions = new Float32Array(dustCount * 3);
+  const dustVelocities = new Float32Array(dustCount * 3);
+  const dustLifetimes = new Float32Array(dustCount);
+  const dustGeo = new THREE.BufferGeometry();
+  dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPositions, 3));
+  const dustMat = new THREE.PointsMaterial({
+    size: 0.3, color: 0xffffff, transparent: true, opacity: 0.4,
+    blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true,
+  });
+  const dustMesh = new THREE.Points(dustGeo, dustMat);
+  scene.add(dustMesh);
+
+  return {
+    clouds,
+    dustPool: { mesh: dustMesh, positions: dustPositions, velocities: dustVelocities, lifetimes: dustLifetimes, count: dustCount, head: 0 },
+  };
+}
+
+function updateNebulaClouds(nebulae, shipGroup, physics, elapsed, delta) {
+  const shipPos = shipGroup.position;
+  const dust = nebulae.dustPool;
+
+  nebulae.clouds.forEach((cloud, ci) => {
+    // Wrap
+    const dist = cloud.sprites[0].position.distanceTo(shipPos);
+    if (dist > 250) {
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(2 * Math.random() - 1);
+      const r = 100 + Math.random() * 100;
+      const newPos = new THREE.Vector3(
+        shipPos.x + r * Math.sin(phi) * Math.cos(theta),
+        shipPos.y + r * Math.sin(phi) * Math.sin(theta),
+        shipPos.z + r * Math.cos(phi)
+      );
+      cloud.pos.copy(newPos);
+      cloud.sprites.forEach((s, j) => {
+        s.position.set(newPos.x + (Math.random() - 0.5) * 3, newPos.y + (Math.random() - 0.5) * 3, newPos.z + (Math.random() - 0.5) * 3);
+      });
+      cloud.light.position.copy(newPos);
+    }
+
+    // Scale pulse
+    cloud.sprites.forEach((s, j) => {
+      const scales = [1.0, 0.8, 0.6];
+      s.scale.setScalar(cloud.baseScale * scales[j] * (1 + 0.03 * Math.sin(elapsed * 0.2 + ci)));
+    });
+
+    // Lightning flashes
+    cloud.lightningTimer -= delta;
+    if (cloud.lightningTimer <= 0) {
+      cloud.sprites.forEach((s, j) => { s.material.opacity = cloud.baseOpacities[j] * 3; });
+      setTimeout(() => {
+        cloud.sprites.forEach((s, j) => { s.material.opacity = cloud.baseOpacities[j]; });
+      }, 50);
+      cloud.lightningTimer = 2 + Math.random() * 6;
+    }
+
+    // Proximity glow
+    const d = cloud.sprites[0].position.distanceTo(shipPos);
+    cloud.light.intensity = d < 30 ? Math.max(0, (30 - d) / 30) * 5 : 0;
+
+    // Proximity dust burst
+    if (d < 15 && physics.speed > 2) {
+      for (let k = 0; k < 2; k++) {
+        const hi = dust.head;
+        const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(shipGroup.quaternion);
+        dust.positions[hi * 3] = shipPos.x + (Math.random() - 0.5) * 2;
+        dust.positions[hi * 3 + 1] = shipPos.y + (Math.random() - 0.5) * 2;
+        dust.positions[hi * 3 + 2] = shipPos.z + (Math.random() - 0.5) * 2;
+        dust.velocities[hi * 3] = fwd.x * physics.speed * 0.3 + (Math.random() - 0.5) * 3;
+        dust.velocities[hi * 3 + 1] = fwd.y * physics.speed * 0.3 + (Math.random() - 0.5) * 3;
+        dust.velocities[hi * 3 + 2] = fwd.z * physics.speed * 0.3 + (Math.random() - 0.5) * 3;
+        dust.lifetimes[hi] = 1.5;
+        dust.head = (dust.head + 1) % dust.count;
+      }
+    }
+  });
+
+  // Age dust particles
+  for (let i = 0; i < dust.count; i++) {
+    if (dust.lifetimes[i] > 0) {
+      dust.lifetimes[i] -= delta;
+      dust.positions[i * 3] += dust.velocities[i * 3] * delta;
+      dust.positions[i * 3 + 1] += dust.velocities[i * 3 + 1] * delta;
+      dust.positions[i * 3 + 2] += dust.velocities[i * 3 + 2] * delta;
+    } else {
+      dust.positions[i * 3] = 0;
+      dust.positions[i * 3 + 1] = 0;
+      dust.positions[i * 3 + 2] = 0;
+    }
+  }
+  dust.mesh.geometry.attributes.position.needsUpdate = true;
+}
+
+// ---------------------------------------------------------------------------
+// Ship shield / aura
+// ---------------------------------------------------------------------------
+
+function createShipShield(shipGroup) {
+  const outerGeo = new THREE.IcosahedronGeometry(7, 1);
+  const outerMat = new THREE.MeshBasicMaterial({
+    wireframe: true, transparent: true, opacity: 0.04, color: 0x4488ff,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  });
+  const outer = new THREE.Mesh(outerGeo, outerMat);
+  shipGroup.add(outer);
+
+  const innerGeo = new THREE.SphereGeometry(6, 32, 32);
+  const innerMat = new THREE.MeshBasicMaterial({
+    transparent: true, opacity: 0.02, color: 0x4488ff,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  });
+  const inner = new THREE.Mesh(innerGeo, innerMat);
+  shipGroup.add(inner);
+
+  return { outer, inner, rippleTime: -1 };
+}
+
+function updateShipShield(shield, physics, input, elapsed, delta, hue, asteroids, shipGroup) {
+  // RGB sync
+  shield.outer.material.color.setHSL(hue, 0.9, 0.5);
+  shield.inner.material.color.setHSL(hue, 0.9, 0.5);
+
+  // Opacity based on speed
+  const speedRatio = physics.speed / physics.maxSpeed;
+  const baseOp = input.boost ? 0.20 : (speedRatio > 0.15 ? 0.10 : 0.04);
+  const pulseFreq = 0.5 + speedRatio * 2.5;
+  const pulse = 1 + 0.3 * Math.sin(elapsed * pulseFreq * Math.PI * 2);
+  shield.outer.material.opacity = baseOp * pulse;
+  shield.inner.material.opacity = (baseOp * 0.5) * pulse;
+
+  // Boost ripple
+  if (shield.rippleTime >= 0) {
+    const t = (elapsed - shield.rippleTime) / 0.4;
+    if (t < 1) {
+      const s = 1 + 0.3 * easeOutElastic(t);
+      shield.outer.scale.setScalar(s);
+      shield.inner.scale.setScalar(s);
+      shield.outer.material.opacity = Math.max(shield.outer.material.opacity, 0.35 * (1 - t));
+    } else {
+      shield.outer.scale.setScalar(1);
+      shield.inner.scale.setScalar(1);
+      shield.rippleTime = -1;
+    }
+  }
+
+  // Counter-rotation
+  shield.outer.rotation.y -= 0.1 * delta;
+  shield.inner.rotation.y += 0.05 * delta;
+
+  // Asteroid proximity — opacity spike
+  if (asteroids) {
+    asteroids.meshes.forEach((m) => {
+      if (m.position.distanceTo(shipGroup.position) < 5) {
+        shield.outer.material.opacity = Math.max(shield.outer.material.opacity, 0.35);
+      }
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Contrail trail
+// ---------------------------------------------------------------------------
+
+function createContrail(scene, side) {
+  const count = isMobile ? 250 : 400;
+  const positions = new Float32Array(count * 3);
+  const colors = new Float32Array(count * 3);
+  const ages = new Float32Array(count).fill(999);
+  const velocities = new Float32Array(count * 3);
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+  const mat = new THREE.PointsMaterial({
+    size: 1.0, vertexColors: true, transparent: true, opacity: 0.5,
+    blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true,
+  });
+  const mesh = new THREE.Points(geo, mat);
+  scene.add(mesh);
+
+  return { mesh, positions, colors, ages, velocities, count, head: 0, side, frame: 0 };
+}
+
+function updateContrail(trail, shipGroup, physics, nebulae, delta) {
+  trail.frame++;
+  const speedRatio = physics.speed / physics.maxSpeed;
+
+  // Spawn rate
+  const shouldSpawn = physics.speed < 2 ? (trail.frame % 3 === 0) : true;
+  const spawnCount = physics.speed > physics.maxSpeed * 0.7 ? 2 : 1;
+
+  if (shouldSpawn) {
+    for (let s = 0; s < spawnCount; s++) {
+      const hi = trail.head;
+      const spread = 1.5 - speedRatio * 1.3;
+      const localSpawn = new THREE.Vector3(
+        trail.side + (Math.random() - 0.5) * spread,
+        (Math.random() - 0.5) * spread * 0.5,
+        0.5 + Math.random() * 0.5
+      );
+      const worldSpawn = localSpawn.applyQuaternion(shipGroup.quaternion).add(shipGroup.position);
+      trail.positions[hi * 3] = worldSpawn.x;
+      trail.positions[hi * 3 + 1] = worldSpawn.y;
+      trail.positions[hi * 3 + 2] = worldSpawn.z;
+
+      const localVel = new THREE.Vector3(
+        (Math.random() - 0.5) * 0.3,
+        -0.5 + (Math.random() - 0.5) * 0.2,
+        (Math.random() - 0.5) * 0.2
+      );
+      const worldVel = localVel.applyQuaternion(shipGroup.quaternion);
+      trail.velocities[hi * 3] = worldVel.x;
+      trail.velocities[hi * 3 + 1] = worldVel.y;
+      trail.velocities[hi * 3 + 2] = worldVel.z;
+
+      trail.ages[hi] = 0;
+      trail.colors[hi * 3] = 1;
+      trail.colors[hi * 3 + 1] = 1;
+      trail.colors[hi * 3 + 2] = 1;
+      trail.head = (trail.head + 1) % trail.count;
+    }
+  }
+
+  // Age + drift
+  for (let i = 0; i < trail.count; i++) {
+    if (trail.ages[i] < 4) {
+      trail.ages[i] += delta;
+      trail.positions[i * 3] += trail.velocities[i * 3] * delta;
+      trail.positions[i * 3 + 1] += trail.velocities[i * 3 + 1] * delta;
+      trail.positions[i * 3 + 2] += trail.velocities[i * 3 + 2] * delta;
+
+      // Wind shear
+      trail.positions[i * 3] += 0.02 * delta;
+      trail.positions[i * 3 + 1] -= 0.01 * delta;
+
+      let brightness = Math.max(0, 1 - trail.ages[i] / 4);
+      let cr = 1, cg = 1, cb = 1;
+
+      // Nebula color blending
+      if (nebulae) {
+        nebulae.clouds.forEach((cloud) => {
+          const dx = trail.positions[i * 3] - cloud.pos.x;
+          const dy = trail.positions[i * 3 + 1] - cloud.pos.y;
+          const dz = trail.positions[i * 3 + 2] - cloud.pos.z;
+          const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+          if (d < 20) {
+            const blend = 0.3 * (1 - d / 20);
+            cr = cr * (1 - blend) + cloud.color.r * blend;
+            cg = cg * (1 - blend) + cloud.color.g * blend;
+            cb = cb * (1 - blend) + cloud.color.b * blend;
+          }
+        });
+      }
+
+      trail.colors[i * 3] = brightness * cr;
+      trail.colors[i * 3 + 1] = brightness * cg;
+      trail.colors[i * 3 + 2] = brightness * cb;
+    } else {
+      trail.positions[i * 3] = 0;
+      trail.positions[i * 3 + 1] = 0;
+      trail.positions[i * 3 + 2] = 0;
+      trail.colors[i * 3] = 0;
+      trail.colors[i * 3 + 1] = 0;
+      trail.colors[i * 3 + 2] = 0;
+    }
+  }
+  trail.mesh.geometry.attributes.position.needsUpdate = true;
+  trail.mesh.geometry.attributes.color.needsUpdate = true;
+}
+
+// ---------------------------------------------------------------------------
+// Warp tunnel
+// ---------------------------------------------------------------------------
+
+function createWarpTunnelTexture(width, hueShift) {
+  const c = document.createElement('canvas');
+  c.width = width; c.height = 64;
+  const ctx = c.getContext('2d');
+  const colors = ['#1A6BFF', '#8833FF', '#ffffff', '#00E5FF', '#6B2FA0'];
+  let y = 0;
+  while (y < 64) {
+    const bandH = 2 + Math.random() * 6;
+    ctx.fillStyle = colors[Math.floor((Math.random() + hueShift) * colors.length) % colors.length];
+    ctx.globalAlpha = 0.3 + Math.random() * 0.5;
+    ctx.fillRect(0, y, width, bandH);
+    y += bandH;
+  }
+  ctx.globalAlpha = 1;
+  const texture = new THREE.CanvasTexture(c);
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(1, 4);
+  return texture;
+}
+
+function createWarpTunnel(scene) {
+  const group = new THREE.Group();
+  const radii = [6, 10, 15, 22];
+  const baseOpacities = [0.18, 0.12, 0.08, 0.05];
+  const rings = [];
+
+  radii.forEach((r, i) => {
+    const geo = new THREE.CylinderGeometry(r, r, 200, isMobile ? 16 : 24, 1, true);
+    const mat = new THREE.MeshBasicMaterial({
+      map: createWarpTunnelTexture(512, i * 0.25),
+      transparent: true, opacity: 0,
+      blending: THREE.AdditiveBlending,
+      side: THREE.BackSide, depthWrite: false,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.rotation.x = Math.PI / 2; // align cylinder with Z axis
+    mesh.userData.baseOpacity = baseOpacities[i];
+    mesh.userData.scrollSpeed = 4 - i * 0.8;
+    group.add(mesh);
+    rings.push(mesh);
+  });
+
+  // Pulse torus rings
+  const pulseRings = [];
+  for (let i = 0; i < 3; i++) {
+    const geo = new THREE.TorusGeometry(10 + i * 3, 0.3, 8, 32);
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0x44aaff, transparent: true, opacity: 0,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.userData.active = false;
+    mesh.userData.z = 0;
+    group.add(mesh);
+    pulseRings.push(mesh);
+  }
+
+  group.visible = false;
+  scene.add(group);
+
+  return { group, rings, pulseRings, active: false, opacity: 0, entryTime: 0, exitTime: 0, lastPulse: 0 };
+}
+
+function updateWarpTunnel(tunnel, camera, shipGroup, physics, input, elapsed, delta, bloomPass) {
+  // Position + orient group to camera/ship
+  tunnel.group.position.copy(camera.position);
+  tunnel.group.quaternion.copy(shipGroup.quaternion);
+
+  // Entry
+  if (input.boost && !tunnel.active) {
+    tunnel.active = true;
+    tunnel.entryTime = elapsed;
+    tunnel.group.visible = true;
+    tunnel.lastPulse = elapsed;
+  }
+
+  // Exit
+  if (!input.boost && tunnel.active) {
+    tunnel.active = false;
+    tunnel.exitTime = elapsed;
+  }
+
+  if (tunnel.active) {
+    // Iris open
+    const entryT = clamp01((elapsed - tunnel.entryTime) / 0.3);
+    tunnel.opacity = entryT;
+
+    // Scroll textures
+    tunnel.rings.forEach((ring) => {
+      ring.material.opacity = ring.userData.baseOpacity * tunnel.opacity;
+      ring.material.map.offset.y += ring.userData.scrollSpeed * delta;
+    });
+
+    // Pulse torus rings
+    if (elapsed - tunnel.lastPulse > 0.5) {
+      const pr = tunnel.pulseRings.find(p => !p.userData.active);
+      if (pr) {
+        pr.userData.active = true;
+        pr.userData.z = -100;
+        pr.material.opacity = 0.6;
+      }
+      tunnel.lastPulse = elapsed;
+    }
+
+    // Bloom modulation
+    if (bloomPass) {
+      bloomPass.threshold += (0.3 - bloomPass.threshold) * 0.1;
+    }
+  } else if (tunnel.group.visible) {
+    // Exit animation
+    const exitT = clamp01((elapsed - tunnel.exitTime) / 0.5);
+    tunnel.opacity = 1 - exitT;
+
+    tunnel.rings.forEach((ring) => {
+      ring.material.opacity = ring.userData.baseOpacity * tunnel.opacity;
+    });
+
+    if (exitT >= 1) {
+      tunnel.group.visible = false;
+      tunnel.opacity = 0;
+    }
+
+    // Bloom recovery
+    if (bloomPass) {
+      bloomPass.threshold += (0.85 - bloomPass.threshold) * 0.05;
+    }
+  } else {
+    // Fully inactive — keep recovering bloom
+    if (bloomPass && bloomPass.threshold < 0.84) {
+      bloomPass.threshold += (0.85 - bloomPass.threshold) * 0.05;
+    }
+  }
+
+  // Animate pulse rings
+  tunnel.pulseRings.forEach((pr) => {
+    if (!pr.userData.active) return;
+    pr.userData.z += 200 * delta;
+    pr.position.set(0, 0, pr.userData.z);
+    pr.material.opacity *= 0.96;
+    if (pr.userData.z > 10) {
+      pr.userData.active = false;
+      pr.material.opacity = 0;
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Barrel roll
 // ---------------------------------------------------------------------------
 
@@ -1161,7 +1800,7 @@ function initMinimap() {
   return canvas.getContext('2d');
 }
 
-function updateMinimap(ctx, shipGroup, bookGroup, elapsed) {
+function updateMinimap(ctx, shipGroup, bookGroup, asteroids, nebulae, elapsed) {
   const w = ctx.canvas.width;
   const h = ctx.canvas.height;
   const cx = w / 2;
@@ -1275,6 +1914,55 @@ function updateMinimap(ctx, shipGroup, bookGroup, elapsed) {
     ctx.arc(sx, sy, 2.5, 0, Math.PI * 2);
     ctx.fill();
   });
+
+  // Asteroid blips — grey triangles
+  if (asteroids) {
+    asteroids.meshes.forEach((mesh) => {
+      const dx = mesh.position.x - shipGroup.position.x;
+      const dz = mesh.position.z - shipGroup.position.z;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      if (dist > radarRange) return;
+
+      const localX = dx * cosY - dz * sinY;
+      const localZ = dx * sinY + dz * cosY;
+      const sx = cx + localX * scale;
+      const sy = cy - localZ * scale;
+      const screenDist = Math.sqrt((sx - cx) * (sx - cx) + (sy - cy) * (sy - cy));
+      if (screenDist > radius - 2) return;
+
+      const isClose = dist < 20;
+      ctx.fillStyle = isClose ? 'rgba(255, 60, 60, 0.8)' : 'rgba(160, 160, 160, 0.5)';
+      ctx.beginPath();
+      ctx.moveTo(sx, sy - 2.5);
+      ctx.lineTo(sx - 2, sy + 1.5);
+      ctx.lineTo(sx + 2, sy + 1.5);
+      ctx.closePath();
+      ctx.fill();
+    });
+  }
+
+  // Nebula zones — faint colored circles
+  if (nebulae) {
+    nebulae.clouds.forEach((cloud) => {
+      const dx = cloud.pos.x - shipGroup.position.x;
+      const dz = cloud.pos.z - shipGroup.position.z;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      if (dist > radarRange) return;
+
+      const localX = dx * cosY - dz * sinY;
+      const localZ = dx * sinY + dz * cosY;
+      const sx = cx + localX * scale;
+      const sy = cy - localZ * scale;
+
+      const r = parseInt(cloud.color.getHexString().slice(0, 2), 16);
+      const g = parseInt(cloud.color.getHexString().slice(2, 4), 16);
+      const b = parseInt(cloud.color.getHexString().slice(4, 6), 16);
+      ctx.fillStyle = `rgba(${r}, ${g}, ${b}, 0.08)`;
+      ctx.beginPath();
+      ctx.arc(sx, sy, cloud.baseScale * scale * 0.3, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  }
 
   // Ship indicator — green triangle pointing up (forward)
   ctx.fillStyle = '#00ff88';
@@ -1424,6 +2112,9 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
         camera.position.z += (Math.random() - 0.5) * shake;
       }
 
+      // Warp tunnel (after screen shake, before FOV)
+      updateWarpTunnel(elements.warpTunnel, camera, shipGroup, physics, input, elapsed, delta, elements.bloomPass);
+
       // FOV warp effect
       const targetFov = 60 + (physics.speed / physics.maxSpeed) * 15 + (input.boost ? 10 : 0);
       camera.fov += (targetFov - camera.fov) * 0.05;
@@ -1449,13 +2140,23 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
       wrapAmbientParticles(elements.ambient, sp);
       wrapBooks(elements.bookGroup, sp);
 
-      // RGB Razer-style color cycling on title
+      // Wrap + update asteroids and nebulae
+      wrapAsteroids(elements.asteroids, sp);
+      updateAsteroidProximity(elements.asteroids, shipGroup);
+      updateNebulaClouds(elements.nebulae, shipGroup, physics, elapsed, delta);
+
+      // RGB + hue (used by title and shield)
+      const speedBoost = 1 + (physics.speed / physics.maxSpeed) * 0.5;
+      const hue = (elapsed * 0.3 * speedBoost) % 1;
+
       if (elements.titleMesh) {
-        const speedBoost = 1 + (physics.speed / physics.maxSpeed) * 0.5;
-        const hue = (elapsed * 0.3 * speedBoost) % 1;
         elements.titleMesh.material.color.setHSL(hue, 0.9, 0.35);
         elements.titleMesh.material.emissive.setHSL(hue, 0.9, 0.12);
       }
+
+      // Ship shield
+      if (input.boost && !state.prevBoost) elements.shield.rippleTime = elapsed;
+      updateShipShield(elements.shield, physics, input, elapsed, delta, hue, elements.asteroids, shipGroup);
 
       // Speed lines (hyperspace streaks)
       updateSpeedLines(elements.speedLines, camera, shipGroup, physics, elapsed);
@@ -1468,13 +2169,17 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
       // Rainbow trail behind ship
       updateRainbowTrail(elements.rainbowTrail, shipGroup, elapsed);
 
+      // Contrail trails
+      updateContrail(elements.contrailL, shipGroup, physics, elements.nebulae, delta);
+      updateContrail(elements.contrailR, shipGroup, physics, elements.nebulae, delta);
+
       // Speed HUD
       const speedHud = document.getElementById('speed-hud');
       if (speedHud) speedHud.textContent = 'SPEED: ' + Math.round(physics.speed);
 
       // Minimap (update every 2nd frame for performance)
       if (elements.minimapCtx && ++state.minimapFrame % 2 === 0) {
-        updateMinimap(elements.minimapCtx, shipGroup, elements.bookGroup, elapsed);
+        updateMinimap(elements.minimapCtx, shipGroup, elements.bookGroup, elements.asteroids, elements.nebulae, elapsed);
       }
     }
 
@@ -1495,6 +2200,24 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
 
     // Flip burst particles
     updateFlipBurst(elements.flipBurst, delta);
+
+    // Asteroid tumble rotation
+    elements.asteroids.meshes.forEach((m, i) => {
+      const rs = elements.asteroids.rotationSpeeds;
+      m.rotation.x += rs[i * 3] * delta;
+      m.rotation.y += rs[i * 3 + 1] * delta;
+      m.rotation.z += rs[i * 3 + 2] * delta;
+    });
+
+    // Nebula gentle pulse during intro
+    if (state.introActive) {
+      elements.nebulae.clouds.forEach((c, i) => {
+        const scales = [1.0, 0.8, 0.6];
+        c.sprites.forEach((s, j) => {
+          s.scale.setScalar(c.baseScale * scales[j] * (1 + 0.03 * Math.sin(elapsed * 0.2 + i)));
+        });
+      });
+    }
 
     // Book float
     elements.bookGroup.children.forEach((card) => {
@@ -1538,3 +2261,7 @@ function easeOutBack(t) {
 }
 function clamp01(v) { return Math.max(0, Math.min(1, v)); }
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+function easeOutElastic(t) {
+  if (t === 0 || t === 1) return t;
+  return Math.pow(2, -10 * t) * Math.sin((t - 0.075) * (2 * Math.PI) / 0.3) + 1;
+}
