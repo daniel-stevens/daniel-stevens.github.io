@@ -1326,3 +1326,139 @@ describe('Multiplayer ghost ships', () => {
     assert.match(scene, /staleThreshold|lastUpdate/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Round 5: Controls Toggle
+// ---------------------------------------------------------------------------
+
+describe('Controls toggle overlay', () => {
+  it('controls-overlay div exists in HTML', () => {
+    assert.match(html, /id=["']controls-overlay["']/);
+  });
+
+  it('KeyH handler in input', () => {
+    assert.match(scene, /KeyH/);
+  });
+
+  it('helpRequested in input state', () => {
+    assert.match(scene, /helpRequested/);
+  });
+
+  it('toggleControlsOverlay function exists', () => {
+    assert.match(scene, /function toggleControlsOverlay/);
+  });
+
+  it('controls overlay contains keybinding text', () => {
+    assert.match(html, /WASD/);
+    assert.match(html, /Barrel Roll/);
+    assert.match(html, /Hyperspace Jump/);
+  });
+
+  it('H for help in flight-hud text', () => {
+    assert.match(html, /H for help/);
+  });
+
+  it('controls overlay has z-index', () => {
+    assert.match(html, /controls-overlay.*z-index/s);
+  });
+
+  it('overlay closes on click', () => {
+    assert.match(scene, /controls-overlay.*click|_clickBound/s);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round 5: Dynamic Soundtrack Layers
+// ---------------------------------------------------------------------------
+
+describe('Dynamic soundtrack layers', () => {
+  it('choirGain created in createProceduralMusic', () => {
+    assert.match(scene, /choirGain/);
+  });
+
+  it('rumbleGain created in createProceduralMusic', () => {
+    assert.match(scene, /rumbleGain/);
+  });
+
+  it('glitchGain created in createProceduralMusic', () => {
+    assert.match(scene, /glitchGain/);
+  });
+
+  it('auroraGain created in createProceduralMusic', () => {
+    assert.match(scene, /auroraGain/);
+  });
+
+  it('tinkleGain created in createProceduralMusic', () => {
+    assert.match(scene, /tinkleGain/);
+  });
+
+  it('reverbGain and delayNode created', () => {
+    assert.match(scene, /reverbGain/);
+    assert.match(scene, /delayNode/);
+  });
+
+  it('triggerBassDropSound function exists', () => {
+    assert.match(scene, /function triggerBassDropSound/);
+  });
+
+  it('triggerTriumphantHornSound function exists', () => {
+    assert.match(scene, /function triggerTriumphantHornSound/);
+  });
+
+  it('updateProceduralMusic accepts weather and whaleDist params', () => {
+    assert.match(scene, /function updateProceduralMusic\(.*weather.*whaleDist/);
+  });
+
+  it('bass drop called on missile kills', () => {
+    assert.match(scene, /missileKills.*triggerBassDropSound|triggerBassDropSound.*missileKills/s);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round 5: Death Replay & Killcam
+// ---------------------------------------------------------------------------
+
+describe('Death replay and killcam', () => {
+  it('state.replay object exists with buffer and bufferSize', () => {
+    assert.match(scene, /replay:\s*\{/);
+    assert.match(scene, /bufferSize:\s*180/);
+  });
+
+  it('recordReplayFrame function exists', () => {
+    assert.match(scene, /function recordReplayFrame/);
+  });
+
+  it('startDeathReplay function exists', () => {
+    assert.match(scene, /function startDeathReplay/);
+  });
+
+  it('updateDeathReplay function exists', () => {
+    assert.match(scene, /function updateDeathReplay/);
+  });
+
+  it('endDeathReplay function exists', () => {
+    assert.match(scene, /function endDeathReplay/);
+  });
+
+  it('showLetterbox function exists', () => {
+    assert.match(scene, /function showLetterbox/);
+  });
+
+  it('letterbox divs in HTML', () => {
+    assert.match(html, /id=["']letterbox-top["']/);
+    assert.match(html, /id=["']letterbox-bottom["']/);
+  });
+
+  it('startDeathReplay called in triggerShipDeath', () => {
+    assert.match(scene, /triggerShipDeath[\s\S]*?startDeathReplay/);
+  });
+
+  it('orbiting camera logic in updateDeathReplay', () => {
+    assert.match(scene, /orbitAngle/);
+    assert.match(scene, /orbitRadius/);
+  });
+
+  it('replay cleanup in respawnShip', () => {
+    assert.match(scene, /respawnShip[\s\S]*?endDeathReplay/);
+  });
+});

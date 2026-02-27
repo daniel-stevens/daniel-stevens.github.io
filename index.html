@@ -21,7 +21,7 @@
         <button type="button" style="font-family: monospace; font-size: 16px; background: #000; color: #0f0; border: 1px solid #0f0; padding: 8px 20px; cursor: pointer; letter-spacing: 2px;">overengineer</button>
     </div>
     <div id="flight-hud" style="display:none; position:fixed; bottom:40px; left:50%; transform:translateX(-50%); z-index:10000; font-family:monospace; font-size:16px; color:rgba(255,255,255,0.95); text-align:center; pointer-events:none; transition:opacity 2s ease; background:rgba(0,0,0,0.6); padding:10px 24px; border-radius:6px; border:1px solid rgba(150,180,255,0.3);">
-        WASD to fly &middot; SPACE to boost &middot; Q to flip &middot; double-tap A/D to barrel roll &middot; F to fire &middot; SHIFT to jump &middot; E for EMP &middot; fly through wormholes &middot; TAB to customize
+        WASD to fly &middot; SPACE to boost &middot; Q to flip &middot; double-tap A/D to barrel roll &middot; F to fire &middot; SHIFT to jump &middot; E for EMP &middot; fly through wormholes &middot; TAB to customize &middot; H for help
     </div>
     <div id="speed-hud" style="display:none; position:fixed; top:20px; right:20px; z-index:10000; font-family:monospace; font-size:14px; color:rgba(0,255,100,0.8); pointer-events:none; background:rgba(0,0,0,0.4); padding:4px 10px; border-radius:4px;">
         SPEED: 0
@@ -55,6 +55,26 @@
     <div id="weather-hud" style="display:none; position:fixed; top:20px; left:50%; transform:translateX(-50%); z-index:10000; font-family:monospace; font-size:14px; color:rgba(255,200,50,0.9); pointer-events:none; background:rgba(0,0,0,0.4); padding:4px 14px; border-radius:4px; text-shadow:0 0 10px rgba(255,150,0,0.5);"></div>
     <div id="players-hud" style="display:none; position:fixed; top:60px; right:20px; z-index:10000; font-family:monospace; font-size:11px; color:rgba(255,255,255,0.6); pointer-events:none; background:rgba(0,0,0,0.3); padding:2px 8px; border-radius:3px;">PLAYERS: 1</div>
     <div id="customization-panel" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; z-index:10002; justify-content:center; align-items:center; background:rgba(0,0,0,0.7); pointer-events:auto;"></div>
+    <div id="controls-overlay" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; z-index:10003; justify-content:center; align-items:center; background:rgba(0,0,0,0.85); pointer-events:auto;">
+        <div style="max-width:500px; width:90%; font-family:monospace; color:#0f0; text-align:left; position:relative;">
+            <div style="text-align:center; font-size:20px; font-weight:bold; margin-bottom:18px; letter-spacing:4px; text-shadow:0 0 10px rgba(0,255,136,0.5);">CONTROLS</div>
+            <div style="display:grid; grid-template-columns:auto 1fr; gap:6px 18px; font-size:13px; line-height:1.8;">
+                <span style="color:#0f0; font-weight:bold;">WASD / Arrows</span><span style="color:rgba(255,255,255,0.8);">Fly</span>
+                <span style="color:#0f0; font-weight:bold;">SPACE</span><span style="color:rgba(255,255,255,0.8);">Boost</span>
+                <span style="color:#0f0; font-weight:bold;">Q</span><span style="color:rgba(255,255,255,0.8);">Flip</span>
+                <span style="color:#0f0; font-weight:bold;">Double-tap A/D</span><span style="color:rgba(255,255,255,0.8);">Barrel Roll</span>
+                <span style="color:#0f0; font-weight:bold;">F</span><span style="color:rgba(255,255,255,0.8);">Fire Weapon</span>
+                <span style="color:#0f0; font-weight:bold;">SHIFT</span><span style="color:rgba(255,255,255,0.8);">Hyperspace Jump</span>
+                <span style="color:#0f0; font-weight:bold;">E</span><span style="color:rgba(255,255,255,0.8);">EMP Blast</span>
+                <span style="color:#0f0; font-weight:bold;">TAB</span><span style="color:rgba(255,255,255,0.8);">Ship Customization</span>
+                <span style="color:#0f0; font-weight:bold;">H</span><span style="color:rgba(255,255,255,0.8);">Toggle Controls</span>
+            </div>
+            <div style="margin-top:14px; text-align:center; font-size:11px; color:rgba(255,255,255,0.4);">Fly through wormholes to shift dimensions</div>
+            <div style="margin-top:10px; text-align:center; font-size:11px; color:rgba(0,255,136,0.4);">Press H or click to close</div>
+        </div>
+    </div>
+    <div id="letterbox-top" style="display:none; position:fixed; top:0; left:0; width:100vw; height:0; background:#000; z-index:10004; transition:height 0.3s ease; pointer-events:none;"></div>
+    <div id="letterbox-bottom" style="display:none; position:fixed; bottom:0; left:0; width:100vw; height:0; background:#000; z-index:10004; transition:height 0.3s ease; pointer-events:none;"></div>
     <style>
         #threejs-canvas { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 9999; }
     </style>

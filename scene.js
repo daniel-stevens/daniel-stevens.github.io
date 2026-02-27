@@ -419,6 +419,21 @@ function toggleCustomizationPanel(state) {
   if (!visible) updateCustomizationPanelUI(state);
 }
 
+function toggleControlsOverlay() {
+  const overlay = document.getElementById('controls-overlay');
+  if (!overlay) return;
+  const visible = overlay.style.display !== 'none';
+  overlay.style.display = visible ? 'none' : 'flex';
+  if (!visible && !overlay._clickBound) {
+    overlay._clickBound = true;
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay || e.target.closest('#controls-overlay > div')) {
+        overlay.style.display = 'none';
+      }
+    });
+  }
+}
+
 function updateCustomizationPanelUI(state) {
   const panel = document.getElementById('customization-panel');
   if (!panel) return;
@@ -571,7 +586,7 @@ function createInputState(canvas) {
     boost: false, mouseX: 0, mouseY: 0, active: false,
     lastLeftTap: 0, lastRightTap: 0, leftTapped: false, rightTapped: false,
     flipRequested: false, fireRequested: false,
-    chargeJump: false, empCharge: false, tabRequested: false,
+    chargeJump: false, empCharge: false, tabRequested: false, helpRequested: false,
   };
 
   window.addEventListener('keydown', (e) => {
@@ -587,6 +602,7 @@ function createInputState(canvas) {
       case 'ShiftLeft': case 'ShiftRight': input.chargeJump = true; e.preventDefault(); break;
       case 'KeyE': input.empCharge = true; break;
       case 'Tab': input.tabRequested = true; e.preventDefault(); break;
+      case 'KeyH': input.helpRequested = true; break;
     }
   });
 
@@ -907,6 +923,11 @@ function initThreeScene(canvas) {
     multiplayer: {
       enabled: false, peer: null, connections: [], ghosts: new Map(),
       myId: null, broadcastTimer: 0, broadcastInterval: 0.1, maxConnections: 8, fallbackChannel: null,
+    },
+    replay: {
+      buffer: [], bufferSize: 180, bufferIndex: 0,
+      playing: false, playTimer: 0, playDuration: 3.0, playIndex: 0,
+      deathPosition: null, orbitAngle: 0,
     },
   };
 
@@ -2941,9 +2962,90 @@ function checkShipCollisions(asteroids, shipGroup, state, elements, elapsed, rgb
   });
 }
 
+// ---------------------------------------------------------------------------
+// Death replay system
+// ---------------------------------------------------------------------------
+
+function recordReplayFrame(state, shipGroup, physics, camera) {
+  const r = state.replay;
+  r.buffer[r.bufferIndex % r.bufferSize] = {
+    pos: shipGroup.position.clone(),
+    rot: shipGroup.quaternion.clone(),
+    speed: physics.speed,
+    camPos: camera.position.clone(),
+  };
+  r.bufferIndex++;
+}
+
+function startDeathReplay(state, shipGroup) {
+  state.replay.playing = true;
+  state.replay.playTimer = 0;
+  state.replay.playIndex = 0;
+  state.replay.deathPosition = shipGroup.position.clone();
+  state.replay.orbitAngle = 0;
+  showLetterbox(true);
+  showActionText('REPLAY');
+}
+
+function updateDeathReplay(state, camera, shipGroup, delta) {
+  const r = state.replay;
+  if (!r.playing || r.buffer.length === 0) return;
+  r.playTimer += delta * 0.5; // half speed = slow motion
+  const t = Math.min(r.playTimer / r.playDuration, 1.0);
+
+  // Map progress across stored frames
+  const frameCount = Math.min(r.bufferIndex, r.bufferSize);
+  if (frameCount === 0) { endDeathReplay(state); return; }
+  const startIdx = r.bufferIndex >= r.bufferSize ? r.bufferIndex - r.bufferSize : 0;
+  const idx = Math.floor(startIdx + t * (frameCount - 1)) % r.bufferSize;
+  const frame = r.buffer[idx];
+
+  if (frame) {
+    shipGroup.position.copy(frame.pos);
+    shipGroup.quaternion.copy(frame.rot);
+  }
+
+  // Orbiting camera around death position
+  r.orbitAngle += delta * 1.5;
+  const orbitRadius = 8;
+  const deathPos = r.deathPosition || shipGroup.position;
+  camera.position.set(
+    deathPos.x + Math.cos(r.orbitAngle) * orbitRadius,
+    deathPos.y + 2 + Math.sin(r.orbitAngle * 0.5) * 2,
+    deathPos.z + Math.sin(r.orbitAngle) * orbitRadius
+  );
+  camera.lookAt(deathPos);
+
+  if (t >= 1.0) endDeathReplay(state);
+}
+
+function endDeathReplay(state) {
+  state.replay.playing = false;
+  showLetterbox(false);
+}
+
+function showLetterbox(show) {
+  const top = document.getElementById('letterbox-top');
+  const bottom = document.getElementById('letterbox-bottom');
+  if (top) {
+    top.style.display = 'block';
+    top.style.height = show ? '12vh' : '0';
+  }
+  if (bottom) {
+    bottom.style.display = 'block';
+    bottom.style.height = show ? '12vh' : '0';
+  }
+  if (!show) {
+    setTimeout(() => {
+      if (top) top.style.display = 'none';
+      if (bottom) bottom.style.display = 'none';
+    }, 300);
+  }
+}
+
 function triggerShipDeath(state, elements, shipGroup, elapsed) {
   state.health.dead = true;
-  state.health.respawnTimer = 2.0;
+  state.health.respawnTimer = 4.0;
   triggerExplosion(elements.explosions, shipGroup.position.clone(), 1.0);
   triggerExplosionSound(elements.sound);
   triggerShockwave(elements.shockwaves, shipGroup.position.clone(), elapsed);
@@ -2952,6 +3054,7 @@ function triggerShipDeath(state, elements, shipGroup, elapsed) {
   if (elements.titleMesh) elements.titleMesh.visible = false;
   elements.tagMeshes.forEach(m => { m.visible = false; });
   elements.linkMeshes.forEach(m => { m.visible = false; });
+  startDeathReplay(state, shipGroup);
 }
 
 function respawnShip(state, elements, shipGroup, physics) {
@@ -2965,6 +3068,7 @@ function respawnShip(state, elements, shipGroup, physics) {
   if (elements.titleMesh) elements.titleMesh.visible = true;
   elements.tagMeshes.forEach(m => { m.visible = true; });
   elements.linkMeshes.forEach(m => { m.visible = true; });
+  endDeathReplay(state);
   showActionText('RESPAWNED!');
 }
 
@@ -3017,7 +3121,7 @@ function updateAchievementStats(state, physics, delta) {
   stats.timeSinceLastDamage += delta;
 }
 
-function checkAchievements(state) {
+function checkAchievements(state, sound) {
   const stats = state.achievements.stats;
   let newUnlock = false;
   for (const ach of ACHIEVEMENTS) {
@@ -3028,7 +3132,10 @@ function checkAchievements(state) {
       newUnlock = true;
     }
   }
-  if (newUnlock) state.achievements._savePending = true;
+  if (newUnlock) {
+    state.achievements._savePending = true;
+    triggerTriumphantHornSound(sound);
+  }
 }
 
 function updateAchievementPopups(state, elements, delta) {
@@ -3886,9 +3993,71 @@ function createProceduralMusic(sound) {
   arpFilter.type = 'lowpass'; arpFilter.frequency.value = 800;
   arpFilter.connect(arpGain);
 
+  // --- Reactive layers ---
+
+  // Whale proximity choir (two sine oscillators, major 3rd)
+  const choirGain = ctx.createGain(); choirGain.gain.value = 0;
+  const choirFilter = ctx.createBiquadFilter();
+  choirFilter.type = 'lowpass'; choirFilter.frequency.value = 600;
+  choirGain.connect(choirFilter); choirFilter.connect(sound.masterGain);
+  const choirOsc1 = ctx.createOscillator(); choirOsc1.type = 'sine'; choirOsc1.frequency.value = 440;
+  const choirOsc2 = ctx.createOscillator(); choirOsc2.type = 'sine'; choirOsc2.frequency.value = 554;
+  choirOsc1.connect(choirGain); choirOsc2.connect(choirGain);
+  choirOsc1.start(); choirOsc2.start();
+
+  // Solar flare rumble (deep 40Hz sine)
+  const rumbleGain = ctx.createGain(); rumbleGain.gain.value = 0;
+  rumbleGain.connect(sound.masterGain);
+  const rumbleOsc = ctx.createOscillator(); rumbleOsc.type = 'sine'; rumbleOsc.frequency.value = 40;
+  rumbleOsc.connect(rumbleGain); rumbleOsc.start();
+
+  // Radiation storm glitch (noise through aggressive waveshaper)
+  const glitchGain = ctx.createGain(); glitchGain.gain.value = 0;
+  const glitchShaper = ctx.createWaveShaper();
+  const glitchCurve = new Float32Array(256);
+  for (let i = 0; i < 256; i++) {
+    const x = (i / 128) - 1;
+    glitchCurve[i] = Math.sign(x) * Math.pow(Math.abs(x), 0.1);
+  }
+  glitchShaper.curve = glitchCurve;
+  glitchGain.connect(glitchShaper); glitchShaper.connect(sound.masterGain);
+  const glitchOsc = ctx.createOscillator(); glitchOsc.type = 'sawtooth'; glitchOsc.frequency.value = 55;
+  glitchOsc.connect(glitchGain); glitchOsc.start();
+
+  // Aurora shimmer (two triangle oscillators, high octave major 3rd)
+  const auroraGain = ctx.createGain(); auroraGain.gain.value = 0;
+  const auroraFilter = ctx.createBiquadFilter();
+  auroraFilter.type = 'bandpass'; auroraFilter.frequency.value = 1000; auroraFilter.Q.value = 1;
+  auroraGain.connect(auroraFilter); auroraFilter.connect(sound.masterGain);
+  const auroraOsc1 = ctx.createOscillator(); auroraOsc1.type = 'triangle'; auroraOsc1.frequency.value = 880;
+  const auroraOsc2 = ctx.createOscillator(); auroraOsc2.type = 'triangle'; auroraOsc2.frequency.value = 1109;
+  auroraOsc1.connect(auroraGain); auroraOsc2.connect(auroraGain);
+  auroraOsc1.start(); auroraOsc2.start();
+
+  // Ice field tinkle (pre-rendered crystalline buffer)
+  const tinkleLen = Math.floor(ctx.sampleRate * 0.03);
+  const tinkleBuffer = ctx.createBuffer(1, tinkleLen, ctx.sampleRate);
+  const tinkleData = tinkleBuffer.getChannelData(0);
+  for (let i = 0; i < tinkleLen; i++) {
+    const t = i / ctx.sampleRate;
+    tinkleData[i] = Math.sin(2 * Math.PI * 2000 * t) * Math.exp(-t * 100);
+  }
+  const tinkleGain = ctx.createGain(); tinkleGain.gain.value = 0;
+  tinkleGain.connect(sound.masterGain);
+
+  // Dimension reverb (delay feedback loop for alternate dimension)
+  const reverbGain = ctx.createGain(); reverbGain.gain.value = 0;
+  const delayNode = ctx.createDelay(1.0); delayNode.delayTime.value = 0.3;
+  const feedbackGain = ctx.createGain(); feedbackGain.gain.value = 0.4;
+  arpFilter.connect(delayNode);
+  delayNode.connect(feedbackGain); feedbackGain.connect(delayNode);
+  delayNode.connect(reverbGain); reverbGain.connect(sound.masterGain);
+
   return {
-    layers: { kickGain, arpGain, hatGain, padGain, combatGain, arpFilter },
-    kickBuffer, hatBuffer,
+    layers: { kickGain, arpGain, hatGain, padGain, combatGain, arpFilter,
+              choirGain, rumbleGain, glitchGain, auroraGain, tinkleGain, reverbGain },
+    kickBuffer, hatBuffer, tinkleBuffer, delayNode,
+    choirOsc1, choirOsc2, auroraOsc1, auroraOsc2,
     nextBeatTime: ctx.currentTime,
     bpm: 60, beatCount: 0,
     scale: [261.6, 293.7, 329.6, 392.0, 440.0],
@@ -3896,7 +4065,7 @@ function createProceduralMusic(sound) {
   };
 }
 
-function updateProceduralMusic(music, sound, physics, state, rgb, delta) {
+function updateProceduralMusic(music, sound, physics, state, rgb, delta, weather, whaleDist) {
   if (!music || !sound || sound.ctx.state !== 'running') return;
   const ctx = sound.ctx;
 
@@ -3938,6 +4107,14 @@ function updateProceduralMusic(music, sound, physics, state, rgb, delta) {
       hat.start(music.nextBeatTime);
     }
 
+    // Ice field tinkle — schedule random tinkle hits during ice weather
+    if (weather === 'ICE_FIELD' && beatInBar % 4 === 1 && Math.random() < 0.3) {
+      const tk = ctx.createBufferSource();
+      tk.buffer = music.tinkleBuffer;
+      tk.connect(music.layers.tinkleGain);
+      tk.start(music.nextBeatTime);
+    }
+
     music.nextBeatTime += sixteenth;
     music.beatCount++;
   }
@@ -3956,6 +4133,27 @@ function updateProceduralMusic(music, sound, physics, state, rgb, delta) {
   layers.arpGain.gain.value += (arpTarget - layers.arpGain.gain.value) * lerpRate;
   layers.hatGain.gain.value += (hatTarget - layers.hatGain.gain.value) * lerpRate;
   layers.combatGain.gain.value += (combatTarget - layers.combatGain.gain.value) * lerpRate;
+
+  // Reactive layers — whale proximity choir
+  const choirTarget = whaleDist < 80 ? rgb * 0.06 * (1 - whaleDist / 80) : 0;
+  layers.choirGain.gain.value += (choirTarget - layers.choirGain.gain.value) * lerpRate;
+
+  // Weather-reactive layers
+  const rumbleTarget = weather === 'SOLAR_FLARE' ? rgb * 0.08 : 0;
+  layers.rumbleGain.gain.value += (rumbleTarget - layers.rumbleGain.gain.value) * lerpRate;
+
+  const glitchTarget = weather === 'RADIATION_STORM' ? rgb * 0.05 : 0;
+  layers.glitchGain.gain.value += (glitchTarget - layers.glitchGain.gain.value) * lerpRate;
+
+  const auroraTarget = weather === 'AURORA' ? rgb * 0.04 : 0;
+  layers.auroraGain.gain.value += (auroraTarget - layers.auroraGain.gain.value) * lerpRate;
+
+  const tinkleTarget = weather === 'ICE_FIELD' ? rgb * 0.06 : 0;
+  layers.tinkleGain.gain.value += (tinkleTarget - layers.tinkleGain.gain.value) * lerpRate;
+
+  // Dimension reverb (wet/dry)
+  const reverbTarget = state.wormhole.inAlternateDimension ? 0.4 : 0;
+  layers.reverbGain.gain.value += (reverbTarget - layers.reverbGain.gain.value) * lerpRate;
 }
 
 // ---------------------------------------------------------------------------
@@ -4686,6 +4884,36 @@ function triggerWormholeSound(sound) {
   echo.start(ctx.currentTime + 0.1); echo.stop(ctx.currentTime + 1.2);
 }
 
+function triggerBassDropSound(sound) {
+  if (!sound || sound.ctx.state !== 'running') return;
+  const ctx = sound.ctx;
+  const osc = ctx.createOscillator();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(60, ctx.currentTime);
+  osc.frequency.exponentialRampToValueAtTime(30, ctx.currentTime + 0.3);
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0.3, ctx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+  osc.connect(gain); gain.connect(sound.masterGain);
+  osc.start(); osc.stop(ctx.currentTime + 0.5);
+}
+
+function triggerTriumphantHornSound(sound) {
+  if (!sound || sound.ctx.state !== 'running') return;
+  const ctx = sound.ctx;
+  const osc1 = ctx.createOscillator(); osc1.type = 'sawtooth'; osc1.frequency.value = 523;
+  const osc2 = ctx.createOscillator(); osc2.type = 'sawtooth'; osc2.frequency.value = 659;
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'lowpass'; filter.frequency.value = 2000;
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0.25, ctx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.8);
+  osc1.connect(filter); osc2.connect(filter);
+  filter.connect(gain); gain.connect(sound.masterGain);
+  osc1.start(); osc2.start();
+  osc1.stop(ctx.currentTime + 0.8); osc2.stop(ctx.currentTime + 0.8);
+}
+
 // ---------------------------------------------------------------------------
 // Weather system
 // ---------------------------------------------------------------------------
@@ -5102,7 +5330,10 @@ function fireBeamWeapon(shipGroup, physics, asteroids, elements, scene, state, e
   setTimeout(() => { scene.remove(beamLine); beamGeo.dispose(); beamMat.dispose(); }, 150);
 
   triggerExplosionSound(elements.sound);
-  if (hits > 0) showActionText('BEAM: ' + hits + ' DESTROYED!');
+  if (hits > 0) {
+    triggerBassDropSound(elements.sound);
+    showActionText('BEAM: ' + hits + ' DESTROYED!');
+  }
   return hits;
 }
 
@@ -5250,6 +5481,12 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
         toggleCustomizationPanel(state);
       }
 
+      // H — controls overlay
+      if (input.helpRequested) {
+        input.helpRequested = false;
+        toggleControlsOverlay();
+      }
+
       // Suppress turning during roll/flip
       const savedLeft = input.left, savedRight = input.right;
       const savedFwd = input.forward, savedBwd = input.backward;
@@ -5261,6 +5498,9 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
       input.forward = savedFwd; input.backward = savedBwd;
 
       updateChaseCamera(camera, shipGroup, physics, input, delta);
+
+      // Record replay frame for death killcam
+      recordReplayFrame(state, shipGroup, physics, camera);
 
       // Barrel roll animation (overrides rotation.z after physics bank)
       updateBarrelRoll(state, shipGroup, elapsed);
@@ -5424,6 +5664,7 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
       const prevExplosionActive = elements.explosions.instances.map(i => i.active);
       const missileKills = updateMissiles(elements.missiles, elements.asteroids, shipGroup, elapsed, delta, elements.shockwaves, elements.explosions, rgb, elements.comets);
       state.achievements.stats.kills += missileKills;
+      if (missileKills > 0) triggerBassDropSound(elements.sound);
       // Detect new explosions for screen shake + boost flash + sound
       elements.explosions.instances.forEach((inst, idx) => {
         if (inst.active && !prevExplosionActive[idx]) {
@@ -5478,13 +5719,18 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
       checkShipCollisions(elements.asteroids, shipGroup, state, elements, elapsed, rgb);
       updateHealthSystem(state, elements, elapsed, delta, shipGroup, physics);
 
+      // Death replay (runs during death)
+      if (state.replay.playing) {
+        updateDeathReplay(state, camera, shipGroup, delta);
+      }
+
       // Achievement tracking
       if (state.prevShipPosition) {
         state.achievements.stats.distanceTraveled += shipGroup.position.distanceTo(state.prevShipPosition);
       }
       state.prevShipPosition = shipGroup.position.clone();
       updateAchievementStats(state, physics, delta);
-      checkAchievements(state);
+      checkAchievements(state, elements.sound);
       updateAchievementPopups(state, elements, delta);
 
       // Speed HUD
@@ -5507,7 +5753,7 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
       updateEngineSound(elements.sound, physics, rgb, state.customization.engineFreqMult);
 
       // Procedural music
-      updateProceduralMusic(elements.music, elements.sound, physics, state, rgb, delta);
+      updateProceduralMusic(elements.music, elements.sound, physics, state, rgb, delta, state.weather.current, whaleDist);
 
       // Wormhole portal
       updateWormhole(elements.wormhole, shipGroup, state, elements, elapsed, delta, rgb);
