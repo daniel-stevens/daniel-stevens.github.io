@@ -544,3 +544,202 @@ describe('scene.js sound design', () => {
     assert.match(scene, /masterGain\.gain/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Lightning Arcs
+// ---------------------------------------------------------------------------
+
+describe('scene.js lightning arcs', () => {
+  it('has lightning pool with line segments', () => {
+    assert.match(scene, /createLightningPool/);
+    assert.match(scene, /LineBasicMaterial/);
+  });
+
+  it('has triggerLightningArc and updateLightningArcs', () => {
+    assert.match(scene, /triggerLightningArc/);
+    assert.match(scene, /updateLightningArcs/);
+  });
+
+  it('lightning arcs snap to nearby asteroids or nebulae', () => {
+    assert.match(scene, /nearestDist/);
+    assert.match(scene, /nearest.*m\.position|nearest.*c\.pos/);
+  });
+
+  it('has lightning sound', () => {
+    assert.match(scene, /triggerLightningSound/);
+  });
+
+  it('lightning timer in animation loop', () => {
+    assert.match(scene, /state\.lightning\.timer/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Black Hole with Gravitational Lensing
+// ---------------------------------------------------------------------------
+
+describe('scene.js black hole', () => {
+  it('has gravitational lensing shader', () => {
+    assert.match(scene, /GravitationalLensingShader/);
+    assert.match(scene, /blackHoleScreenPos/);
+    assert.match(scene, /distortionStrength/);
+  });
+
+  it('has black hole creation with event horizon and accretion disk', () => {
+    assert.match(scene, /createBlackHole/);
+    assert.match(scene, /accretionDisk/);
+    assert.match(scene, /eventHorizonRadius/);
+  });
+
+  it('has accretion disk texture', () => {
+    assert.match(scene, /createAccretionDiskTexture/);
+  });
+
+  it('has gravity pull on asteroids and ship', () => {
+    assert.match(scene, /pullStrength/);
+    assert.match(scene, /gravityRadius/);
+  });
+
+  it('has updateBlackHole function', () => {
+    assert.match(scene, /updateBlackHole/);
+  });
+
+  it('has black hole drone sound', () => {
+    assert.match(scene, /createBlackHoleDrone/);
+    assert.match(scene, /updateBlackHoleDrone/);
+  });
+
+  it('lensing pass in post-processing pipeline', () => {
+    assert.match(scene, /lensingPass/);
+    assert.match(scene, /GravitationalLensingShader/);
+  });
+
+  it('black hole shown on minimap', () => {
+    assert.match(scene, /updateMinimap\([^)]*blackHole/);
+    assert.match(scene, /event horizon/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Collision & Screen Cracks
+// ---------------------------------------------------------------------------
+
+describe('scene.js collision and screen cracks', () => {
+  it('has screen crack shader', () => {
+    assert.match(scene, /ScreenCrackShader/);
+    assert.match(scene, /crackIntensity/);
+    assert.match(scene, /crackLine/);
+  });
+
+  it('has crack pass in post-processing pipeline', () => {
+    assert.match(scene, /crackPass/);
+  });
+
+  it('has health bar HUD in HTML', () => {
+    assert.match(html, /id=["']health-bar-hud["']/);
+    assert.match(html, /id=["']health-bar-inner["']/);
+    assert.match(html, /HULL/);
+  });
+
+  it('has health state tracking', () => {
+    assert.match(scene, /health:\s*\{/);
+    assert.match(scene, /crackIntensity/);
+    assert.match(scene, /invincible/);
+  });
+
+  it('has ship collision detection', () => {
+    assert.match(scene, /checkShipCollisions/);
+  });
+
+  it('shield absorbs at high RGB', () => {
+    assert.match(scene, /SHIELD ABSORBED/);
+    assert.match(scene, /rgb > 0\.7/);
+  });
+
+  it('has ship death and respawn', () => {
+    assert.match(scene, /triggerShipDeath/);
+    assert.match(scene, /respawnShip/);
+    assert.match(scene, /respawnTimer/);
+  });
+
+  it('has damage sound', () => {
+    assert.match(scene, /triggerDamageSound/);
+  });
+
+  it('health system heals over time', () => {
+    assert.match(scene, /healDelay/);
+    assert.match(scene, /healRate/);
+  });
+
+  it('health bar and cracks excluded from beginTransformation hide', () => {
+    assert.match(scene, /health-bar-hud/);
+    assert.match(scene, /achievement-container/);
+  });
+
+  it('health bar shown in showFlightHUD', () => {
+    const showFn = scene.match(/function showFlightHUD[\s\S]*?^}/m);
+    assert.ok(showFn, 'showFlightHUD function exists');
+    assert.match(showFn[0], /health-bar-hud/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Achievement Popups
+// ---------------------------------------------------------------------------
+
+describe('scene.js achievement popups', () => {
+  it('has ACHIEVEMENTS constant with multiple entries', () => {
+    assert.match(scene, /ACHIEVEMENTS\s*=/);
+    assert.match(scene, /FIRST BLOOD/);
+    assert.match(scene, /SPEED DEMON/);
+    assert.match(scene, /BARREL KING/);
+  });
+
+  it('has achievement container in HTML', () => {
+    assert.match(html, /id=["']achievement-container["']/);
+  });
+
+  it('has achievement stats tracking', () => {
+    assert.match(scene, /stats:\s*\{/);
+    assert.match(scene, /kills:\s*0/);
+    assert.match(scene, /distanceTraveled/);
+    assert.match(scene, /barrelRolls/);
+  });
+
+  it('has updateAchievementStats function', () => {
+    assert.match(scene, /updateAchievementStats/);
+  });
+
+  it('has checkAchievements function', () => {
+    assert.match(scene, /checkAchievements/);
+    assert.match(scene, /unlocked/);
+    assert.match(scene, /popupQueue/);
+  });
+
+  it('has updateAchievementPopups with DOM management', () => {
+    assert.match(scene, /updateAchievementPopups/);
+    assert.match(scene, /achievement-container/);
+  });
+
+  it('has achievement sound', () => {
+    assert.match(scene, /triggerAchievementSound/);
+  });
+
+  it('stat hooks wired into existing systems', () => {
+    assert.match(scene, /stats\.kills\s*\+=/);
+    assert.match(scene, /stats\.barrelRolls\s*\+\+/);
+    assert.match(scene, /stats\.flips\s*\+\+/);
+    assert.match(scene, /stats\.sonicBooms\s*\+\+/);
+  });
+
+  it('distance tracking with prevShipPosition', () => {
+    assert.match(scene, /prevShipPosition/);
+    assert.match(scene, /distanceTraveled/);
+  });
+
+  it('achievement container shown in showFlightHUD', () => {
+    const showFn = scene.match(/function showFlightHUD[\s\S]*?^}/m);
+    assert.ok(showFn, 'showFlightHUD function exists');
+    assert.match(showFn[0], /achievement-container/);
+  });
+});

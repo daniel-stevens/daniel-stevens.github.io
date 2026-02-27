@@ -52,6 +52,86 @@ const MotionBlurShader = {
     }`,
 };
 
+const GravitationalLensingShader = {
+  uniforms: {
+    tDiffuse: { value: null },
+    blackHoleScreenPos: { value: new THREE.Vector2(0.5, 0.5) },
+    distortionStrength: { value: 0.0 },
+    radius: { value: 0.15 },
+  },
+  vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+  fragmentShader: `
+    uniform sampler2D tDiffuse;
+    uniform vec2 blackHoleScreenPos;
+    uniform float distortionStrength;
+    uniform float radius;
+    varying vec2 vUv;
+    void main() {
+      vec2 dir = vUv - blackHoleScreenPos;
+      float dist = length(dir);
+      float normDist = dist / radius;
+      float warp = 0.0;
+      if (normDist < 1.0 && normDist > 0.05) {
+        warp = distortionStrength * (1.0 - normDist) * (1.0 - normDist) / normDist;
+      }
+      vec2 warpedUv = vUv + normalize(dir) * warp * 0.05;
+      float darkness = smoothstep(0.0, 0.08, normDist);
+      vec4 color = texture2D(tDiffuse, warpedUv);
+      float rim = smoothstep(0.04, 0.08, normDist) * (1.0 - smoothstep(0.08, 0.15, normDist));
+      color.rgb += vec3(0.3, 0.15, 0.5) * rim * distortionStrength;
+      color.rgb *= mix(0.0, 1.0, darkness);
+      gl_FragColor = color;
+    }`,
+};
+
+const ScreenCrackShader = {
+  uniforms: {
+    tDiffuse: { value: null },
+    crackIntensity: { value: 0.0 },
+    time: { value: 0.0 },
+  },
+  vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+  fragmentShader: `
+    uniform sampler2D tDiffuse;
+    uniform float crackIntensity;
+    uniform float time;
+    varying vec2 vUv;
+    float crackLine(vec2 uv, vec2 origin, vec2 dir, float len) {
+      vec2 d = uv - origin;
+      float proj = dot(d, dir);
+      if (proj < 0.0 || proj > len) return 0.0;
+      vec2 perp = d - dir * proj;
+      float dist = length(perp);
+      float width = 0.002 + 0.001 * sin(proj * 50.0 + time);
+      return smoothstep(width, 0.0, dist);
+    }
+    void main() {
+      vec4 color = texture2D(tDiffuse, vUv);
+      if (crackIntensity <= 0.0) { gl_FragColor = color; return; }
+      float crack = 0.0;
+      crack += crackLine(vUv, vec2(0.5, 0.5), normalize(vec2(0.7, 0.3)), 0.4) * crackIntensity;
+      crack += crackLine(vUv, vec2(0.5, 0.5), normalize(vec2(-0.5, 0.6)), 0.35) * crackIntensity;
+      crack += crackLine(vUv, vec2(0.5, 0.5), normalize(vec2(0.2, -0.8)), 0.45) * crackIntensity;
+      crack += crackLine(vUv, vec2(0.5, 0.5), normalize(vec2(-0.8, -0.2)), 0.3) * crackIntensity;
+      if (crackIntensity > 0.3) {
+        crack += crackLine(vUv, vec2(0.35, 0.65), normalize(vec2(0.9, 0.1)), 0.25) * (crackIntensity - 0.3);
+        crack += crackLine(vUv, vec2(0.6, 0.35), normalize(vec2(-0.3, 0.9)), 0.3) * (crackIntensity - 0.3);
+      }
+      if (crackIntensity > 0.6) {
+        crack += crackLine(vUv, vec2(0.3, 0.3), normalize(vec2(0.5, -0.5)), 0.35) * (crackIntensity - 0.6);
+        crack += crackLine(vUv, vec2(0.7, 0.7), normalize(vec2(-0.6, -0.4)), 0.25) * (crackIntensity - 0.6);
+      }
+      crack = clamp(crack, 0.0, 1.0);
+      vec2 refractOffset = vec2(crack * 0.005, crack * 0.003);
+      vec4 refracted = texture2D(tDiffuse, vUv + refractOffset);
+      color = mix(color, refracted, crack * 0.3);
+      color.rgb += vec3(1.0, 0.95, 0.9) * crack * 0.8;
+      float vignette = length(vUv - vec2(0.5)) * 2.0;
+      color.rgb *= 1.0 - crackIntensity * vignette * 0.3;
+      gl_FragColor = color;
+    }`,
+};
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -98,6 +178,21 @@ const CATEGORY_COLORS = {
   'Strategy & Negotiation': '#ff6b9d',
   'Health & Wellness': '#c084fc',
 };
+
+const ACHIEVEMENTS = [
+  { id: 'first_blood', name: 'FIRST BLOOD', desc: 'Destroy your first asteroid', check: s => s.kills >= 1 },
+  { id: 'speed_demon', name: 'SPEED DEMON', desc: 'Reach maximum speed', check: s => s.maxSpeedReached >= 38 },
+  { id: 'barrel_king', name: 'BARREL KING', desc: 'Perform 5 barrel rolls', check: s => s.barrelRolls >= 5 },
+  { id: 'flip_master', name: 'FLIP MASTER', desc: 'Perform 5 flips', check: s => s.flips >= 5 },
+  { id: 'slayer_10', name: 'ASTEROID SLAYER', desc: 'Destroy 10 asteroids', check: s => s.kills >= 10 },
+  { id: 'distance_1000', name: 'EXPLORER', desc: 'Travel 1000 units', check: s => s.distanceTraveled >= 1000 },
+  { id: 'combo_master', name: 'COMBO MASTER', desc: 'Achieve combo x4', check: s => s.maxCombo >= 4 },
+  { id: 'sonic_pioneer', name: 'SONIC PIONEER', desc: 'Trigger your first sonic boom', check: s => s.sonicBooms >= 1 },
+  { id: 'untouchable', name: 'UNTOUCHABLE', desc: 'Survive 60s without damage', check: s => s.timeSinceLastDamage >= 60 },
+  { id: 'slayer_25', name: 'DESTROYER', desc: 'Destroy 25 asteroids', check: s => s.kills >= 25 },
+  { id: 'distance_5000', name: 'VOYAGER', desc: 'Travel 5000 units', check: s => s.distanceTraveled >= 5000 },
+  { id: 'barrel_king_20', name: 'ROLL ADDICT', desc: 'Perform 20 barrel rolls', check: s => s.barrelRolls >= 20 },
+];
 
 const isMobile = window.innerWidth < 768;
 
@@ -167,7 +262,7 @@ function beginTransformation() {
     document.body.appendChild(canvas);
 
     Array.from(document.body.children).forEach((el) => {
-      if (el.id !== 'threejs-canvas' && el.id !== 'flight-hud' && el.id !== 'speed-hud' && el.id !== 'minimap' && el.id !== 'action-text' && el.id !== 'rgb-slider-hud' && el.tagName !== 'SCRIPT' && el.tagName !== 'STYLE') {
+      if (el.id !== 'threejs-canvas' && el.id !== 'flight-hud' && el.id !== 'speed-hud' && el.id !== 'minimap' && el.id !== 'action-text' && el.id !== 'rgb-slider-hud' && el.id !== 'health-bar-hud' && el.id !== 'achievement-container' && el.tagName !== 'SCRIPT' && el.tagName !== 'STYLE') {
         el.style.display = 'none';
       }
     });
@@ -388,14 +483,17 @@ function initThreeScene(canvas) {
   const missiles = createMissilePool(scene);
   const explosions = createExplosionPool(scene);
   const sound = createSoundEngine();
+  const lightning = createLightningPool(scene);
+  const blackHole = createBlackHole(scene);
+  const drone = createBlackHoleDrone(sound);
 
   const elements = {
     stars, ambient, titleMesh: null, tagMeshes: [], linkMeshes: [],
     bookGroup, thruster, engineGlowL, engineGlowR,
     speedLines, boostFlash, rainbowTrail, minimapCtx, flipBurst,
     asteroids, nebulae, shield, contrailL, contrailR, warpTunnel,
-    shockwaves, missiles, explosions, sound,
-    bloomPass: null, chromaPass: null, motionBlurPass: null,
+    shockwaves, missiles, explosions, sound, lightning, blackHole, drone,
+    bloomPass: null, chromaPass: null, motionBlurPass: null, lensingPass: null, crackPass: null,
   };
 
   // Post-processing
@@ -415,9 +513,15 @@ function initThreeScene(canvas) {
     composer.addPass(chromaPass);
     const motionBlurPass = new ShaderPass(MotionBlurShader);
     composer.addPass(motionBlurPass);
+    const lensingPass = new ShaderPass(GravitationalLensingShader);
+    composer.addPass(lensingPass);
+    const crackPass = new ShaderPass(ScreenCrackShader);
+    composer.addPass(crackPass);
     composer.addPass(new OutputPass());
     elements.chromaPass = chromaPass;
     elements.motionBlurPass = motionBlurPass;
+    elements.lensingPass = lensingPass;
+    elements.crackPass = crackPass;
     renderFn = () => composer.render();
   } catch (e) {
     console.warn('Post-processing failed, using basic renderer:', e);
@@ -449,6 +553,18 @@ function initThreeScene(canvas) {
     barrelRoll: { active: false, direction: 1, startTime: 0, duration: 0.6, comboCount: 0, lastRollEnd: 0 },
     flip: { active: false, startTime: 0, startRotY: 0, duration: 0.8, cameraOffset: 0 },
     sonicBoomFired: false, explosionShake: 0, prevRollActive: false, prevFlipActive: false,
+    lightning: { timer: 0 },
+    health: {
+      current: 100, max: 100, crackIntensity: 0,
+      invincible: false, invincibleTimer: 0,
+      lastDamageTime: 0, healDelay: 3, healRate: 0.05,
+      dead: false, respawnTimer: 0,
+    },
+    achievements: {
+      stats: { kills: 0, distanceTraveled: 0, maxSpeedReached: 0, barrelRolls: 0, flips: 0, sonicBooms: 0, maxCombo: 0, timeSinceLastDamage: 0 },
+      unlocked: new Set(), popupQueue: [], activePopup: null, popupTimer: 0,
+    },
+    prevShipPosition: null,
   };
   startAnimationLoop(renderFn, elements, camera, shipGroup, physics, input, state, lights, rgbState);
   setupResize(camera, renderer, composer, bloomPass);
@@ -1716,6 +1832,235 @@ function updateWarpTunnel(tunnel, camera, shipGroup, physics, input, elapsed, de
 }
 
 // ---------------------------------------------------------------------------
+// Black hole
+// ---------------------------------------------------------------------------
+
+function createAccretionDiskTexture() {
+  const c = document.createElement('canvas');
+  c.width = 256; c.height = 64;
+  const ctx = c.getContext('2d');
+  const grad = ctx.createLinearGradient(0, 0, 256, 0);
+  grad.addColorStop(0, 'rgba(0,0,0,0)');
+  grad.addColorStop(0.2, '#ff6600');
+  grad.addColorStop(0.5, '#ffffff');
+  grad.addColorStop(0.8, '#ff6600');
+  grad.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 256, 64);
+  const texture = new THREE.CanvasTexture(c);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  return texture;
+}
+
+function createBlackHole(scene) {
+  const group = new THREE.Group();
+
+  // Event horizon — pure black sphere
+  const horizonGeo = new THREE.SphereGeometry(3, 32, 32);
+  const horizonMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+  const horizon = new THREE.Mesh(horizonGeo, horizonMat);
+  group.add(horizon);
+
+  // Glowing rim
+  const rimGeo = new THREE.TorusGeometry(3.2, 0.1, 16, 64);
+  const rimMat = new THREE.MeshBasicMaterial({
+    color: 0x8844ff, transparent: true, opacity: 0.8,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  });
+  const rim = new THREE.Mesh(rimGeo, rimMat);
+  group.add(rim);
+
+  // Second rim at different angle
+  const rim2 = rim.clone();
+  rim2.rotation.x = Math.PI / 2;
+  group.add(rim2);
+
+  // Accretion disk
+  const diskGeo = new THREE.TorusGeometry(6, 1.5, 8, 64);
+  const diskMat = new THREE.MeshBasicMaterial({
+    map: createAccretionDiskTexture(),
+    transparent: true, opacity: 0.6,
+    blending: THREE.AdditiveBlending,
+    side: THREE.DoubleSide, depthWrite: false,
+  });
+  const accretionDisk = new THREE.Mesh(diskGeo, diskMat);
+  accretionDisk.rotation.x = Math.PI * 0.3;
+  group.add(accretionDisk);
+
+  group.position.set(
+    (Math.random() - 0.5) * 200,
+    (Math.random() - 0.5) * 100,
+    -50 - Math.random() * 150
+  );
+  scene.add(group);
+
+  return {
+    group, accretionDisk,
+    gravityRadius: 60,
+    pullStrength: 8,
+    eventHorizonRadius: 3,
+  };
+}
+
+function updateBlackHole(blackHole, shipGroup, physics, asteroids, camera, elapsed, delta, rgb, lensingPass) {
+  const bhPos = blackHole.group.position;
+
+  // Disk rotation
+  blackHole.accretionDisk.rotation.z += delta * 0.5;
+
+  // Wrap
+  const distToShip = bhPos.distanceTo(shipGroup.position);
+  if (distToShip > 250) {
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(2 * Math.random() - 1);
+    const r = 100 + Math.random() * 100;
+    bhPos.set(
+      shipGroup.position.x + r * Math.sin(phi) * Math.cos(theta),
+      shipGroup.position.y + r * Math.sin(phi) * Math.sin(theta),
+      shipGroup.position.z + r * Math.cos(phi)
+    );
+  }
+
+  // Gravity pull on asteroids
+  if (asteroids) {
+    asteroids.meshes.forEach((m) => {
+      const dir = new THREE.Vector3().subVectors(bhPos, m.position);
+      const dist = dir.length();
+      if (dist < blackHole.gravityRadius && dist > blackHole.eventHorizonRadius) {
+        const force = blackHole.pullStrength / (dist * dist) * delta;
+        m.position.addScaledVector(dir.normalize(), force);
+      }
+    });
+  }
+
+  // Gravity pull on ship (subtle)
+  if (distToShip < blackHole.gravityRadius) {
+    const pullDir = new THREE.Vector3().subVectors(bhPos, shipGroup.position).normalize();
+    const pullMag = blackHole.pullStrength * 0.3 / Math.max(distToShip * distToShip, 1) * delta;
+    physics.velocity.addScaledVector(pullDir, pullMag);
+  }
+
+  // Lensing shader
+  if (lensingPass) {
+    const screenPos = bhPos.clone().project(camera);
+    if (screenPos.z <= 1) {
+      lensingPass.uniforms.blackHoleScreenPos.value.set(
+        screenPos.x * 0.5 + 0.5,
+        screenPos.y * 0.5 + 0.5
+      );
+      lensingPass.uniforms.distortionStrength.value =
+        clamp01(1 - distToShip / blackHole.gravityRadius) * rgb;
+      lensingPass.uniforms.radius.value =
+        clamp(3 / Math.max(distToShip, 1) * 0.5, 0.02, 0.4);
+    } else {
+      lensingPass.uniforms.distortionStrength.value = 0;
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Lightning arcs
+// ---------------------------------------------------------------------------
+
+function createLightningPool(scene) {
+  const bolts = [];
+  for (let i = 0; i < 4; i++) {
+    const segCount = 20;
+    const positions = new Float32Array(segCount * 2 * 3);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const mat = new THREE.LineBasicMaterial({
+      color: 0xccffff, transparent: true, opacity: 0,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    });
+    const mesh = new THREE.LineSegments(geo, mat);
+    scene.add(mesh);
+    bolts.push({ mesh, positions, active: false, lifetime: 0, maxLifetime: 0.15, segCount });
+  }
+  return { bolts };
+}
+
+function triggerLightningArc(pool, shipGroup, asteroids, nebulae, rgb) {
+  // Find nearest target within 15 units
+  let nearest = null;
+  let nearestDist = 15;
+  if (asteroids) {
+    asteroids.meshes.forEach((m) => {
+      const d = m.position.distanceTo(shipGroup.position);
+      if (d < nearestDist) { nearestDist = d; nearest = m.position; }
+    });
+  }
+  if (!nearest && nebulae) {
+    nebulae.clouds.forEach((c) => {
+      const d = c.pos.distanceTo(shipGroup.position);
+      if (d < nearestDist) { nearestDist = d; nearest = c.pos; }
+    });
+  }
+  if (!nearest) return;
+
+  // Find inactive bolt
+  const bolt = pool.bolts.find(b => !b.active);
+  if (!bolt) return;
+
+  bolt.active = true;
+  bolt.lifetime = bolt.maxLifetime;
+
+  const start = shipGroup.position;
+  const end = nearest;
+  const dir = new THREE.Vector3().subVectors(end, start);
+  const len = dir.length();
+  dir.normalize();
+  // Perpendicular axis
+  const up = new THREE.Vector3(0, 1, 0);
+  const perp1 = new THREE.Vector3().crossVectors(dir, up).normalize();
+  const perp2 = new THREE.Vector3().crossVectors(dir, perp1).normalize();
+
+  for (let i = 0; i < bolt.segCount; i++) {
+    const t0 = i / bolt.segCount;
+    const t1 = (i + 1) / bolt.segCount;
+    const jitter = 0.5 * (1 + rgb);
+
+    const p0 = start.clone().addScaledVector(dir, t0 * len);
+    if (i > 0) {
+      p0.addScaledVector(perp1, (Math.random() - 0.5) * jitter);
+      p0.addScaledVector(perp2, (Math.random() - 0.5) * jitter);
+    }
+    const p1 = start.clone().addScaledVector(dir, t1 * len);
+    if (i < bolt.segCount - 1) {
+      p1.addScaledVector(perp1, (Math.random() - 0.5) * jitter);
+      p1.addScaledVector(perp2, (Math.random() - 0.5) * jitter);
+    }
+
+    const idx = i * 6;
+    bolt.positions[idx] = p0.x; bolt.positions[idx + 1] = p0.y; bolt.positions[idx + 2] = p0.z;
+    bolt.positions[idx + 3] = p1.x; bolt.positions[idx + 4] = p1.y; bolt.positions[idx + 5] = p1.z;
+  }
+  bolt.mesh.geometry.attributes.position.needsUpdate = true;
+  bolt.mesh.material.opacity = 0.6 + rgb * 0.4;
+}
+
+function updateLightningArcs(pool, delta, rgb) {
+  pool.bolts.forEach((bolt) => {
+    if (!bolt.active) return;
+    bolt.lifetime -= delta;
+    if (bolt.lifetime <= 0) {
+      bolt.active = false;
+      bolt.mesh.material.opacity = 0;
+      return;
+    }
+    // Jitter points each frame for flicker
+    for (let i = 1; i < bolt.positions.length / 3 - 1; i++) {
+      bolt.positions[i * 3] += (Math.random() - 0.5) * 0.15;
+      bolt.positions[i * 3 + 1] += (Math.random() - 0.5) * 0.15;
+      bolt.positions[i * 3 + 2] += (Math.random() - 0.5) * 0.15;
+    }
+    bolt.mesh.geometry.attributes.position.needsUpdate = true;
+    bolt.mesh.material.opacity = (bolt.lifetime / bolt.maxLifetime) * (0.6 + rgb * 0.4);
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Sonic boom shockwave
 // ---------------------------------------------------------------------------
 
@@ -1843,6 +2188,7 @@ function fireMissile(pool, shipGroup, physics, asteroids) {
 }
 
 function updateMissiles(pool, asteroids, shipGroup, elapsed, delta, shockwaves, explosions, rgb) {
+  let kills = 0;
   for (let i = 0; i < pool.count; i++) {
     const s = pool.states[i];
     if (!s.active) continue;
@@ -1890,6 +2236,7 @@ function updateMissiles(pool, asteroids, shipGroup, elapsed, delta, shockwaves, 
           );
           const texts = ['DESTROYED!', 'OBLITERATED!', 'ANNIHILATED!', 'VAPORIZED!'];
           showActionText(texts[Math.floor(Math.random() * texts.length)]);
+          kills++;
           break;
         }
       }
@@ -1905,6 +2252,7 @@ function updateMissiles(pool, asteroids, shipGroup, elapsed, delta, shockwaves, 
       pool.trails[i].mesh.geometry.attributes.position.needsUpdate = true;
     }
   }
+  return kills;
 }
 
 // ---------------------------------------------------------------------------
@@ -2150,6 +2498,177 @@ function showActionText(text) {
 }
 
 // ---------------------------------------------------------------------------
+// Collision & health system
+// ---------------------------------------------------------------------------
+
+function checkShipCollisions(asteroids, shipGroup, state, elements, elapsed, rgb) {
+  if (state.health.invincible || state.health.dead) return;
+  asteroids.meshes.forEach((m) => {
+    const hitDist = (m.userData.size || 1) + 1;
+    if (m.position.distanceTo(shipGroup.position) < hitDist) {
+      if (rgb > 0.7) {
+        // Shield absorbs
+        elements.shield.rippleTime = elapsed;
+        showActionText('SHIELD ABSORBED!');
+        triggerDamageSound(elements.sound);
+        // Respawn asteroid away
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.acos(2 * Math.random() - 1);
+        const r = 80 + Math.random() * 70;
+        m.position.set(
+          shipGroup.position.x + r * Math.sin(phi) * Math.cos(theta),
+          shipGroup.position.y + r * Math.sin(phi) * Math.sin(theta),
+          shipGroup.position.z + r * Math.cos(phi)
+        );
+        return;
+      }
+      const damage = 10 + (m.userData.size || 1) * 5;
+      state.health.current = Math.max(0, state.health.current - damage);
+      state.health.crackIntensity = clamp01(state.health.crackIntensity + damage / 100);
+      state.health.lastDamageTime = elapsed;
+      state.achievements.stats.timeSinceLastDamage = 0;
+      triggerBoostFlash(elements.boostFlash);
+      triggerDamageSound(elements.sound);
+      state.explosionShake = 0.5;
+      showActionText('HULL DAMAGE!');
+      // Respawn asteroid
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(2 * Math.random() - 1);
+      const r = 80 + Math.random() * 70;
+      m.position.set(
+        shipGroup.position.x + r * Math.sin(phi) * Math.cos(theta),
+        shipGroup.position.y + r * Math.sin(phi) * Math.sin(theta),
+        shipGroup.position.z + r * Math.cos(phi)
+      );
+      if (state.health.current <= 0) {
+        triggerShipDeath(state, elements, shipGroup, elapsed);
+      }
+    }
+  });
+}
+
+function triggerShipDeath(state, elements, shipGroup, elapsed) {
+  state.health.dead = true;
+  state.health.respawnTimer = 2.0;
+  triggerExplosion(elements.explosions, shipGroup.position.clone(), 1.0);
+  triggerExplosionSound(elements.sound);
+  triggerShockwave(elements.shockwaves, shipGroup.position.clone(), elapsed);
+  showActionText('DESTROYED!');
+  state.explosionShake = 2.0;
+  if (elements.titleMesh) elements.titleMesh.visible = false;
+  elements.tagMeshes.forEach(m => { m.visible = false; });
+  elements.linkMeshes.forEach(m => { m.visible = false; });
+}
+
+function respawnShip(state, elements, shipGroup, physics) {
+  state.health.dead = false;
+  state.health.current = state.health.max;
+  state.health.crackIntensity = 0;
+  state.health.invincible = true;
+  state.health.invincibleTimer = 3.0;
+  physics.velocity.set(0, 0, 0);
+  physics.speed = 0;
+  if (elements.titleMesh) elements.titleMesh.visible = true;
+  elements.tagMeshes.forEach(m => { m.visible = true; });
+  elements.linkMeshes.forEach(m => { m.visible = true; });
+  showActionText('RESPAWNED!');
+}
+
+function updateHealthSystem(state, elements, elapsed, delta, shipGroup, physics) {
+  // Heal cracks over time
+  if (elapsed - state.health.lastDamageTime > state.health.healDelay && !state.health.dead) {
+    state.health.crackIntensity = Math.max(0, state.health.crackIntensity - state.health.healRate * delta);
+    state.health.current = Math.min(state.health.max, state.health.current + 5 * delta);
+  }
+
+  // Update crack shader
+  if (elements.crackPass) {
+    elements.crackPass.uniforms.crackIntensity.value = state.health.crackIntensity;
+    elements.crackPass.uniforms.time.value = elapsed;
+  }
+
+  // Invincibility
+  if (state.health.invincible) {
+    state.health.invincibleTimer -= delta;
+    if (state.health.invincibleTimer <= 0) state.health.invincible = false;
+    elements.shield.outer.material.opacity = 0.3 * Math.abs(Math.sin(elapsed * 10));
+  }
+
+  // Health bar HUD
+  const bar = document.getElementById('health-bar-inner');
+  if (bar) {
+    const pct = (state.health.current / state.health.max) * 100;
+    bar.style.width = pct + '%';
+    if (pct > 60) bar.style.background = 'linear-gradient(90deg, #00ff66, #00ff88)';
+    else if (pct > 30) bar.style.background = 'linear-gradient(90deg, #ffaa00, #ffcc44)';
+    else bar.style.background = 'linear-gradient(90deg, #ff3333, #ff6644)';
+  }
+
+  // Death respawn
+  if (state.health.dead) {
+    state.health.respawnTimer -= delta;
+    if (state.health.respawnTimer <= 0) {
+      respawnShip(state, elements, shipGroup, physics);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Achievement system
+// ---------------------------------------------------------------------------
+
+function updateAchievementStats(state, physics, delta) {
+  const stats = state.achievements.stats;
+  if (physics.speed > stats.maxSpeedReached) stats.maxSpeedReached = physics.speed;
+  stats.timeSinceLastDamage += delta;
+}
+
+function checkAchievements(state) {
+  const stats = state.achievements.stats;
+  for (const ach of ACHIEVEMENTS) {
+    if (state.achievements.unlocked.has(ach.id)) continue;
+    if (ach.check(stats)) {
+      state.achievements.unlocked.add(ach.id);
+      state.achievements.popupQueue.push(ach);
+    }
+  }
+}
+
+function updateAchievementPopups(state, elements, delta) {
+  const container = document.getElementById('achievement-container');
+  if (!container) return;
+
+  if (state.achievements.activePopup) {
+    state.achievements.popupTimer -= delta;
+    if (state.achievements.popupTimer <= 0) {
+      const el = container.firstChild;
+      if (el) {
+        el.style.opacity = '0';
+        el.style.transform = 'translateX(120%)';
+        setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 500);
+      }
+      state.achievements.activePopup = null;
+    }
+    return;
+  }
+
+  if (state.achievements.popupQueue.length > 0) {
+    const ach = state.achievements.popupQueue.shift();
+    state.achievements.activePopup = ach;
+    state.achievements.popupTimer = 3.0;
+    const popup = document.createElement('div');
+    popup.style.cssText = 'font-family:monospace; background:linear-gradient(135deg, rgba(255,215,0,0.15), rgba(255,255,255,0.05)); border:1px solid rgba(255,215,0,0.5); border-radius:6px; padding:10px 18px; margin-bottom:8px; transform:translateX(120%); opacity:0; transition:all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);';
+    popup.innerHTML = '<div style="color:#ffd700; font-size:14px; font-weight:bold; letter-spacing:2px;">ACHIEVEMENT</div><div style="color:#fff; font-size:16px; font-weight:bold; margin-top:2px;">' + ach.name + '</div><div style="color:rgba(255,255,255,0.6); font-size:11px; margin-top:2px;">' + ach.desc + '</div>';
+    container.appendChild(popup);
+    requestAnimationFrame(() => {
+      popup.style.opacity = '1';
+      popup.style.transform = 'translateX(0)';
+    });
+    triggerAchievementSound(elements.sound);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Minimap (tactical radar)
 // ---------------------------------------------------------------------------
 
@@ -2159,7 +2678,7 @@ function initMinimap() {
   return canvas.getContext('2d');
 }
 
-function updateMinimap(ctx, shipGroup, bookGroup, asteroids, nebulae, elapsed) {
+function updateMinimap(ctx, shipGroup, bookGroup, asteroids, nebulae, blackHole, elapsed) {
   const w = ctx.canvas.width;
   const h = ctx.canvas.height;
   const cx = w / 2;
@@ -2321,6 +2840,40 @@ function updateMinimap(ctx, shipGroup, bookGroup, asteroids, nebulae, elapsed) {
       ctx.arc(sx, sy, cloud.baseScale * scale * 0.3, 0, Math.PI * 2);
       ctx.fill();
     });
+  }
+
+  // Black hole blip — pulsing purple gravity ring + dark center
+  if (blackHole) {
+    const dx = blackHole.group.position.x - shipGroup.position.x;
+    const dz = blackHole.group.position.z - shipGroup.position.z;
+    const dist = Math.sqrt(dx * dx + dz * dz);
+    if (dist < radarRange) {
+      const localX = dx * cosY - dz * sinY;
+      const localZ = dx * sinY + dz * cosY;
+      const sx = cx + localX * scale;
+      const sy = cy - localZ * scale;
+
+      // Gravity range circle (pulsing purple)
+      const gravRange = blackHole.gravityRadius * scale;
+      const pulse = 0.3 + 0.15 * Math.sin(elapsed * 3);
+      ctx.strokeStyle = `rgba(160, 60, 255, ${pulse})`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(sx, sy, Math.min(gravRange, radius * 0.8), 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Event horizon (dark center)
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.9)';
+      ctx.beginPath();
+      ctx.arc(sx, sy, 3, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Purple rim glow
+      ctx.fillStyle = 'rgba(160, 60, 255, 0.8)';
+      ctx.beginPath();
+      ctx.arc(sx, sy, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 
   // Ship indicator — green triangle pointing up (forward)
@@ -2551,6 +3104,109 @@ function triggerExplosionSound(sound) {
   noise.stop(ctx.currentTime + 0.5);
 }
 
+function triggerLightningSound(sound) {
+  if (!sound || sound.ctx.state !== 'running') return;
+  const ctx = sound.ctx;
+  const bufferSize = ctx.sampleRate * 0.08;
+  const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+  const noise = ctx.createBufferSource();
+  noise.buffer = buffer;
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'highpass';
+  filter.frequency.value = 3000;
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0.2, ctx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.1);
+  noise.connect(filter);
+  filter.connect(gain);
+  gain.connect(sound.masterGain);
+  noise.start();
+  noise.stop(ctx.currentTime + 0.1);
+}
+
+function triggerDamageSound(sound) {
+  if (!sound || sound.ctx.state !== 'running') return;
+  const ctx = sound.ctx;
+  const osc = ctx.createOscillator();
+  osc.type = 'triangle';
+  osc.frequency.setValueAtTime(800, ctx.currentTime);
+  osc.frequency.exponentialRampToValueAtTime(200, ctx.currentTime + 0.3);
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0.4, ctx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+  osc.connect(gain);
+  gain.connect(sound.masterGain);
+  osc.start();
+  osc.stop(ctx.currentTime + 0.4);
+  const bufferSize = ctx.sampleRate * 0.15;
+  const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+  const noise = ctx.createBufferSource();
+  noise.buffer = buffer;
+  const nGain = ctx.createGain();
+  nGain.gain.setValueAtTime(0.25, ctx.currentTime);
+  nGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+  noise.connect(nGain);
+  nGain.connect(sound.masterGain);
+  noise.start();
+  noise.stop(ctx.currentTime + 0.15);
+}
+
+function triggerAchievementSound(sound) {
+  if (!sound || sound.ctx.state !== 'running') return;
+  const ctx = sound.ctx;
+  const notes = [523.25, 659.25, 783.99];
+  notes.forEach((freq, i) => {
+    const osc = ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    const gain = ctx.createGain();
+    const startTime = ctx.currentTime + i * 0.08;
+    gain.gain.setValueAtTime(0, startTime);
+    gain.gain.linearRampToValueAtTime(0.15, startTime + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.4);
+    osc.connect(gain);
+    gain.connect(sound.masterGain);
+    osc.start(startTime);
+    osc.stop(startTime + 0.4);
+  });
+}
+
+function createBlackHoleDrone(sound) {
+  if (!sound || !sound.ctx) return null;
+  const ctx = sound.ctx;
+  const osc1 = ctx.createOscillator();
+  osc1.type = 'sine';
+  osc1.frequency.value = 30;
+  const osc2 = ctx.createOscillator();
+  osc2.type = 'sine';
+  osc2.frequency.value = 31.5;
+  const gain = ctx.createGain();
+  gain.gain.value = 0;
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'lowpass';
+  filter.frequency.value = 80;
+  osc1.connect(filter);
+  osc2.connect(filter);
+  filter.connect(gain);
+  gain.connect(sound.masterGain);
+  osc1.start();
+  osc2.start();
+  return { osc1, osc2, gain };
+}
+
+function updateBlackHoleDrone(drone, distance, gravityRadius, rgb) {
+  if (!drone) return;
+  const proximity = clamp01(1 - distance / gravityRadius);
+  const targetVol = proximity * proximity * 0.15 * rgb;
+  drone.gain.gain.value += (targetVol - drone.gain.gain.value) * 0.05;
+  drone.osc1.frequency.value = 30 + proximity * 20;
+  drone.osc2.frequency.value = 31.5 + proximity * 22;
+}
+
 // ---------------------------------------------------------------------------
 // HUD
 // ---------------------------------------------------------------------------
@@ -2568,6 +3224,10 @@ function showFlightHUD() {
   if (minimap) minimap.style.display = 'block';
   const rgbHud = document.getElementById('rgb-slider-hud');
   if (rgbHud) rgbHud.style.display = 'block';
+  const healthHud = document.getElementById('health-bar-hud');
+  if (healthHud) healthHud.style.display = 'block';
+  const achContainer = document.getElementById('achievement-container');
+  if (achContainer) achContainer.style.display = 'block';
 }
 
 // ---------------------------------------------------------------------------
@@ -2809,18 +3469,22 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
         triggerShockwave(elements.shockwaves, shipGroup.position.clone(), elapsed);
         triggerExplosionSound(elements.sound);
         showActionText('SONIC BOOM!');
+        state.achievements.stats.sonicBooms++;
       }
       if (physics.speed < physics.maxSpeed * 0.6) state.sonicBoomFired = false;
 
       // Shockwave on barrel roll completion
       if (state.prevRollActive && !state.barrelRoll.active) {
         triggerShockwave(elements.shockwaves, shipGroup.position.clone(), elapsed);
+        state.achievements.stats.barrelRolls++;
+        state.achievements.stats.maxCombo = Math.max(state.achievements.stats.maxCombo, state.barrelRoll.comboCount);
       }
       state.prevRollActive = state.barrelRoll.active;
 
       // Shockwave on flip completion
       if (state.prevFlipActive && !state.flip.active) {
         triggerShockwave(elements.shockwaves, shipGroup.position.clone(), elapsed);
+        state.achievements.stats.flips++;
       }
       state.prevFlipActive = state.flip.active;
 
@@ -2829,7 +3493,8 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
 
       // Missiles + explosions
       const prevExplosionActive = elements.explosions.instances.map(i => i.active);
-      updateMissiles(elements.missiles, elements.asteroids, shipGroup, elapsed, delta, elements.shockwaves, elements.explosions, rgb);
+      const missileKills = updateMissiles(elements.missiles, elements.asteroids, shipGroup, elapsed, delta, elements.shockwaves, elements.explosions, rgb);
+      state.achievements.stats.kills += missileKills;
       // Detect new explosions for screen shake + boost flash + sound
       elements.explosions.instances.forEach((inst, idx) => {
         if (inst.active && !prevExplosionActive[idx]) {
@@ -2848,6 +3513,36 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
         state.explosionShake -= delta * 2;
       }
 
+      // Lightning arcs
+      state.lightning.timer -= delta;
+      if (state.lightning.timer <= 0) {
+        const chance = 0.4 + rgb * 0.4;
+        if (Math.random() < chance) {
+          triggerLightningArc(elements.lightning, shipGroup, elements.asteroids, elements.nebulae, rgb);
+          triggerLightningSound(elements.sound);
+        }
+        state.lightning.timer = 0.3 + Math.random() * 0.7;
+      }
+      updateLightningArcs(elements.lightning, delta, rgb);
+
+      // Black hole
+      updateBlackHole(elements.blackHole, shipGroup, physics, elements.asteroids, camera, elapsed, delta, rgb, elements.lensingPass);
+      const bhDist = shipGroup.position.distanceTo(elements.blackHole.group.position);
+      updateBlackHoleDrone(elements.drone, bhDist, elements.blackHole.gravityRadius, rgb);
+
+      // Collision & health
+      checkShipCollisions(elements.asteroids, shipGroup, state, elements, elapsed, rgb);
+      updateHealthSystem(state, elements, elapsed, delta, shipGroup, physics);
+
+      // Achievement tracking
+      if (state.prevShipPosition) {
+        state.achievements.stats.distanceTraveled += shipGroup.position.distanceTo(state.prevShipPosition);
+      }
+      state.prevShipPosition = shipGroup.position.clone();
+      updateAchievementStats(state, physics, delta);
+      checkAchievements(state);
+      updateAchievementPopups(state, elements, delta);
+
       // Speed HUD
       const speedHud = document.getElementById('speed-hud');
       if (speedHud) speedHud.textContent = 'SPEED: ' + Math.round(physics.speed);
@@ -2857,7 +3552,7 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
 
       // Minimap (update every 2nd frame for performance)
       if (elements.minimapCtx && ++state.minimapFrame % 2 === 0) {
-        updateMinimap(elements.minimapCtx, shipGroup, elements.bookGroup, elements.asteroids, elements.nebulae, elapsed);
+        updateMinimap(elements.minimapCtx, shipGroup, elements.bookGroup, elements.asteroids, elements.nebulae, elements.blackHole, elapsed);
       }
     }
 
