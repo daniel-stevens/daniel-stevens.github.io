@@ -4872,12 +4872,27 @@ function updateIceField(state, scene, elements, shipGroup, elapsed, delta, rgb, 
     scene.fog.density = 0.003 * pct * rgb;
     scene.fog.color.setHex(0x001133);
   }
-  // Animate crystals
+  // Animate crystals and check missile collisions
   w.iceField.crystals.forEach((mesh, i) => {
+    if (!mesh.visible) return;
     mesh.material.opacity = 0.6 * pct;
     mesh.rotation.x += delta * 0.3;
     mesh.rotation.y += delta * 0.5;
     mesh.material.emissiveIntensity = 0.3 + 0.2 * Math.sin(elapsed + i);
+    // Check missile proximity for destruction
+    if (elements.missiles) {
+      for (let mi = 0; mi < elements.missiles.count; mi++) {
+        const ms = elements.missiles.states[mi];
+        if (ms.active && ms.position.distanceTo(mesh.position) < 4) {
+          mesh.visible = false;
+          ms.active = false;
+          elements.missiles.meshes[mi].visible = false;
+          triggerExplosion(elements.explosions, mesh.position.clone(), rgb);
+          state.achievements.stats.iceCrystalsDestroyed = (state.achievements.stats.iceCrystalsDestroyed || 0) + 1;
+          break;
+        }
+      }
+    }
   });
 }
 
