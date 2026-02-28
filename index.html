@@ -128,6 +128,16 @@
     </div>
     <div id="letterbox-top" style="display:none; position:fixed; top:0; left:0; width:100vw; height:0; background:#000; z-index:10004; transition:height 0.3s ease; pointer-events:none;"></div>
     <div id="letterbox-bottom" style="display:none; position:fixed; bottom:0; left:0; width:100vw; height:0; background:#000; z-index:10004; transition:height 0.3s ease; pointer-events:none;"></div>
+    <div id="touch-controls" style="display:none; position:fixed; bottom:0; left:0; width:100vw; height:100vh; z-index:10001; pointer-events:none;">
+        <canvas id="touch-joystick" width="200" height="200" style="position:absolute; bottom:20px; left:20px; pointer-events:auto; opacity:0.5;"></canvas>
+        <div id="touch-buttons" style="position:absolute; bottom:20px; right:20px; pointer-events:auto; display:flex; flex-direction:column; gap:10px; opacity:0.6;">
+            <button data-action="fire" style="font-family:monospace; font-size:14px; width:60px; height:60px; border-radius:50%; background:rgba(255,50,50,0.3); color:#ff4444; border:2px solid rgba(255,50,50,0.5); cursor:pointer;">FIRE</button>
+            <button data-action="boost" style="font-family:monospace; font-size:11px; width:60px; height:60px; border-radius:50%; background:rgba(0,255,136,0.3); color:#00ff88; border:2px solid rgba(0,255,136,0.5); cursor:pointer;">BOOST</button>
+            <button data-action="emp" style="font-family:monospace; font-size:14px; width:60px; height:60px; border-radius:50%; background:rgba(255,255,0,0.3); color:#ffff44; border:2px solid rgba(255,255,0,0.5); cursor:pointer;">EMP</button>
+            <button data-action="jump" style="font-family:monospace; font-size:11px; width:60px; height:60px; border-radius:50%; background:rgba(0,150,255,0.3); color:#4488ff; border:2px solid rgba(0,150,255,0.5); cursor:pointer;">JUMP</button>
+        </div>
+    </div>
+    <div id="webgl-fallback" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; z-index:9999; background:#000; color:#0f0; font-family:monospace; justify-content:center; align-items:center; text-align:center; padding:40px;"></div>
     <style>
         #threejs-canvas { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 9999; }
     </style>

@@ -1849,3 +1849,148 @@ describe('Project cards in 3D scene', () => {
     assert.match(scene, /\[ Projects \]/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Round 7: Polish & Visual Upgrades
+// ---------------------------------------------------------------------------
+
+describe('A1: Mobile touch controls', () => {
+  it('touch-controls div exists in HTML', () => {
+    assert.match(html, /id="touch-controls"/);
+  });
+
+  it('touch-joystick canvas exists in HTML', () => {
+    assert.match(html, /id="touch-joystick"/);
+  });
+
+  it('touch-buttons div exists in HTML', () => {
+    assert.match(html, /id="touch-buttons"/);
+  });
+
+  it('createTouchControls function exists', () => {
+    assert.match(scene, /function createTouchControls/);
+  });
+
+  it('updateTouchJoystick function exists', () => {
+    assert.match(scene, /function updateTouchJoystick/);
+  });
+});
+
+describe('A2: WebGL fallback', () => {
+  it('checkWebGLSupport function exists', () => {
+    assert.match(scene, /function checkWebGLSupport/);
+  });
+
+  it('webgl-fallback div exists in HTML', () => {
+    assert.match(html, /id="webgl-fallback"/);
+  });
+
+  it('fallback shows message when WebGL unavailable', () => {
+    assert.match(scene, /WebGL Not Supported/);
+  });
+});
+
+describe('A3: Auto-upgrade quality', () => {
+  it('highFpsTimer exists in state', () => {
+    assert.match(scene, /highFpsTimer:\s*0/);
+  });
+
+  it('upgrade threshold checks FPS > 55', () => {
+    assert.match(scene, /currentFps > 55/);
+  });
+
+  it('upgrade logic promotes to next tier', () => {
+    assert.match(scene, /QUALITY UPGRADED/);
+  });
+});
+
+describe('C1: Dimension color shifts', () => {
+  it('DIMENSION_PALETTES constant exists', () => {
+    assert.match(scene, /const DIMENSION_PALETTES/);
+  });
+
+  it('applyDimensionColors function exists', () => {
+    assert.match(scene, /function applyDimensionColors/);
+  });
+
+  it('alternate palette has 5 colors', () => {
+    assert.match(scene, /alternate:\s*\[/);
+  });
+
+  it('stars tint green in alternate dimension', () => {
+    assert.match(scene, /setHSL\(0\.33/);
+  });
+
+  it('ambient particle color changes by dimension', () => {
+    assert.match(scene, /0x22ff66/);
+  });
+});
+
+describe('C2: Procedural planets', () => {
+  it('PLANET_TYPES constant exists', () => {
+    assert.match(scene, /const PLANET_TYPES/);
+  });
+
+  it('createPlanetTexture function exists', () => {
+    assert.match(scene, /function createPlanetTexture/);
+  });
+
+  it('createPlanet function exists', () => {
+    assert.match(scene, /function createPlanet\(/);
+  });
+
+  it('createPlanetField function exists', () => {
+    assert.match(scene, /function createPlanetField/);
+  });
+
+  it('updatePlanets function exists', () => {
+    assert.match(scene, /function updatePlanets/);
+  });
+
+  it('planets shown on minimap', () => {
+    assert.match(scene, /Planet blips/);
+  });
+});
+
+describe('C3: Asteroid textures', () => {
+  it('createAsteroidTexture function exists', () => {
+    assert.match(scene, /function createAsteroidTexture/);
+  });
+
+  it('asteroids use map property for textures', () => {
+    assert.match(scene, /map:\s*createAsteroidTexture/);
+  });
+
+  it('three texture types exist (rocky, metallic, crystal)', () => {
+    assert.match(scene, /createAsteroidTexture\('rocky'\)/);
+    assert.match(scene, /createAsteroidTexture\('metallic'\)/);
+    assert.match(scene, /createAsteroidTexture\('crystal'\)/);
+  });
+});
+
+describe('C4: Space station', () => {
+  it('createSpaceStation function exists', () => {
+    assert.match(scene, /function createSpaceStation/);
+  });
+
+  it('station has CylinderGeometry hub', () => {
+    assert.match(scene, /CylinderGeometry/);
+  });
+
+  it('station has TorusGeometry docking rings', () => {
+    assert.match(scene, /dockingRings/);
+  });
+
+  it('updateSpaceStation function exists', () => {
+    assert.match(scene, /function updateSpaceStation/);
+  });
+
+  it('wrapSpaceStation function exists', () => {
+    assert.match(scene, /function wrapSpaceStation/);
+  });
+
+  it('DOCK MASTER achievement exists', () => {
+    assert.match(scene, /dock_master/);
+    assert.match(scene, /DOCK MASTER/);
+  });
+});
