@@ -58,6 +58,8 @@
     <div id="speed-hud" style="display:none; position:fixed; top:20px; right:20px; z-index:10000; font-family:monospace; font-size:14px; color:rgba(0,255,100,0.8); pointer-events:none; background:rgba(0,0,0,0.4); padding:4px 10px; border-radius:4px;">
         SPEED: 0
     </div>
+    <div id="score-hud" style="display:none; position:fixed; top:20px; left:50%; transform:translateX(-50%); z-index:10000; font-family:monospace; font-size:14px; color:rgba(255,215,0,0.9); pointer-events:none; background:rgba(0,0,0,0.4); padding:4px 14px; border-radius:4px;">SCORE: 0</div>
+    <div id="highscore-hud" style="display:none; position:fixed; top:42px; left:50%; transform:translateX(-50%); z-index:10000; font-family:monospace; font-size:11px; color:rgba(255,215,0,0.5); pointer-events:none;">HI: 0</div>
     <canvas id="minimap" width="150" height="150" style="display:none; position:fixed; bottom:20px; left:20px; z-index:10000; border-radius:50%; pointer-events:none; border:1px solid rgba(0,255,136,0.3); box-shadow:0 0 10px rgba(0,255,136,0.1);"></canvas>
     <div id="action-text" style="position:fixed; top:35%; left:50%; transform:translate(-50%,-50%); z-index:10000; font-family:monospace; font-size:32px; font-weight:bold; color:#fff; text-shadow:0 0 20px rgba(0,255,136,0.8), 0 0 40px rgba(0,150,255,0.5); pointer-events:none; transition:opacity 0.6s ease; opacity:0;"></div>
     <div id="rgb-slider-hud" style="display:none; position:fixed; top:20px; left:20px; z-index:10000; font-family:monospace; font-size:12px; color:rgba(0,255,136,0.8); background:rgba(0,0,0,0.5); padding:8px 12px; border-radius:4px; border:1px solid rgba(0,255,136,0.2);">
@@ -69,6 +71,21 @@
         <div style="width:120px; height:8px; background:rgba(0,0,0,0.6); border:1px solid rgba(0,255,136,0.3); border-radius:2px; overflow:hidden;">
             <div id="health-bar-inner" style="width:100%; height:100%; background:linear-gradient(90deg, #00ff88, #00cc66); transition:width 0.3s ease;"></div>
         </div>
+    </div>
+    <div id="shield-bar-hud" style="display:none; position:fixed; bottom:38px; right:20px; z-index:10000; font-family:monospace; font-size:12px; color:rgba(68,136,255,0.8); pointer-events:none;">
+        <div style="margin-bottom:2px;">SHIELD</div>
+        <div style="width:120px; height:8px; background:rgba(0,0,0,0.6); border:1px solid rgba(68,136,255,0.3); border-radius:2px; overflow:hidden;">
+            <div id="shield-bar-inner" style="width:100%; height:100%; background:linear-gradient(90deg, #4488ff, #66aaff); transition:width 0.3s ease;"></div>
+        </div>
+    </div>
+    <div id="boss-health-hud" style="display:none; position:fixed; top:80px; left:50%; transform:translateX(-50%); z-index:10000; font-family:monospace; font-size:12px; color:rgba(255,50,50,0.9); pointer-events:none; text-align:center;">
+        <div style="margin-bottom:2px;">BOSS</div>
+        <div style="width:200px; height:8px; background:rgba(0,0,0,0.6); border:1px solid rgba(255,50,50,0.5); border-radius:2px; overflow:hidden;">
+            <div id="boss-health-inner" style="width:100%; height:100%; background:linear-gradient(90deg, #ff2222, #ff6644); transition:width 0.3s ease;"></div>
+        </div>
+    </div>
+    <div id="resource-hud" style="display:none; position:fixed; bottom:50px; left:20px; z-index:10000; font-family:monospace; font-size:11px; color:rgba(255,255,255,0.7); pointer-events:none; background:rgba(0,0,0,0.4); padding:4px 8px; border-radius:3px;">
+        <span style="color:#4488ff;">&#9670; 0</span> <span style="color:#aaa;">&#9670; 0</span> <span style="color:#44ff44;">&#9670; 0</span>
     </div>
     <div id="achievement-container" style="display:none; position:fixed; top:60px; right:20px; z-index:10001; font-family:monospace; pointer-events:none;"></div>
     <div id="jump-cooldown-hud" style="display:none; position:fixed; bottom:45px; right:20px; z-index:10000; font-family:monospace; font-size:11px; color:rgba(0,200,255,0.8); pointer-events:none; background:rgba(0,0,0,0.4); padding:2px 8px; border-radius:3px;">JUMP READY</div>

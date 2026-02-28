@@ -173,6 +173,45 @@ const DimensionShiftShader = {
     }`,
 };
 
+const VolumetricLightShader = {
+  uniforms: {
+    tDiffuse: { value: null },
+    lightScreenPos: { value: new THREE.Vector2(0.5, 0.5) },
+    lightColor: { value: new THREE.Vector3(1, 1, 1) },
+    exposure: { value: 0.15 },
+    decay: { value: 0.95 },
+    density: { value: 0.8 },
+    weight: { value: 0.4 },
+    numSamples: { value: 50 },
+  },
+  vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+  fragmentShader: `
+    uniform sampler2D tDiffuse;
+    uniform vec2 lightScreenPos;
+    uniform vec3 lightColor;
+    uniform float exposure;
+    uniform float decay;
+    uniform float density;
+    uniform float weight;
+    uniform int numSamples;
+    varying vec2 vUv;
+    void main() {
+      vec2 deltaUV = (vUv - lightScreenPos) * (1.0 / float(numSamples)) * density;
+      vec2 sampleUV = vUv;
+      vec4 color = texture2D(tDiffuse, vUv);
+      float illuminationDecay = 1.0;
+      vec3 godRay = vec3(0.0);
+      for (int i = 0; i < 50; i++) {
+        sampleUV -= deltaUV;
+        vec4 s = texture2D(tDiffuse, sampleUV);
+        float lum = dot(s.rgb, vec3(0.299, 0.587, 0.114));
+        godRay += lum * illuminationDecay * weight * lightColor;
+        illuminationDecay *= decay;
+      }
+      gl_FragColor = color + vec4(godRay * exposure, 0.0);
+    }`,
+};
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -238,6 +277,9 @@ const ACHIEVEMENTS = [
   { id: 'extinction_event', name: 'EXTINCTION EVENT', desc: 'Destroy 5+ objects with single EMP', check: s => (s.maxEMPKills || 0) >= 5 },
   { id: 'space_whisperer', name: 'SPACE WHISPERER', desc: 'Get within 10 units of the space whale', check: s => s.whaleProximity },
   { id: 'dimension_hopper', name: 'DIMENSION HOPPER', desc: 'Enter alternate dimension', check: s => (s.dimensionShifts || 0) >= 1 },
+  { id: 'score_10k', name: 'TEN THOUSAND', desc: 'Reach 10,000 score', check: s => (s.maxScore || 0) >= 10000 },
+  { id: 'score_50k', name: 'FIFTY GRAND', desc: 'Reach 50,000 score', check: s => (s.maxScore || 0) >= 50000 },
+  { id: 'boss_slayer', name: 'BOSS SLAYER', desc: 'Defeat a boss', check: s => (s.bossesDefeated || 0) >= 1 },
 ];
 
 const isMobile = window.innerWidth < 768;
@@ -252,6 +294,7 @@ const QUALITY_PRESETS = {
     thruster: 50, speedLines: 25, trails: 120, contrails: 150,
     warpSegments: 16, explosions: 100, wormholeParticles: 80,
     bloom: true, chroma: false, motionBlur: false, lensing: false, crack: false, dimensionShift: false,
+    envMap: false, volumetric: false,
     pixelRatio: 0.5, antialias: false,
   },
   MEDIUM: {
@@ -259,6 +302,7 @@ const QUALITY_PRESETS = {
     thruster: 120, speedLines: 60, trails: 300, contrails: 300,
     warpSegments: 20, explosions: 150, wormholeParticles: 150,
     bloom: true, chroma: true, motionBlur: false, lensing: true, crack: false, dimensionShift: false,
+    envMap: true, volumetric: false,
     pixelRatio: 0.75, antialias: false,
   },
   HIGH: {
@@ -266,6 +310,7 @@ const QUALITY_PRESETS = {
     thruster: 200, speedLines: 100, trails: 500, contrails: 400,
     warpSegments: 24, explosions: 200, wormholeParticles: 200,
     bloom: true, chroma: true, motionBlur: true, lensing: true, crack: true, dimensionShift: true,
+    envMap: true, volumetric: true,
     pixelRatio: 1.0, antialias: true,
   },
   INSANE: {
@@ -273,6 +318,7 @@ const QUALITY_PRESETS = {
     thruster: 400, speedLines: 200, trails: 800, contrails: 600,
     warpSegments: 32, explosions: 300, wormholeParticles: 350,
     bloom: true, chroma: true, motionBlur: true, lensing: true, crack: true, dimensionShift: true,
+    envMap: true, volumetric: true,
     pixelRatio: 1.5, antialias: true,
   },
 };
@@ -409,6 +455,52 @@ function applyShieldCustomization(state, elements, shipGroup) {
   const innerMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.02, color: cfg.color, blending: THREE.AdditiveBlending, depthWrite: false });
   elements.shield.inner = new THREE.Mesh(innerGeo, innerMat);
   shipGroup.add(elements.shield.inner);
+}
+
+function createSpaceEnvMap(renderer, scene) {
+  const cubeRenderTarget = new THREE.WebGLCubeRenderTarget(128, { format: THREE.RGBAFormat, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter });
+  const cubeCamera = new THREE.CubeCamera(0.1, 200, cubeRenderTarget);
+  scene.add(cubeCamera);
+  return { cubeCamera, cubeRenderTarget };
+}
+
+function createVolumetricPass(composer) {
+  const pass = new ShaderPass(VolumetricLightShader);
+  pass.enabled = false;
+  return pass;
+}
+
+function updateVolumetricLight(pass, nebulae, shipGroup, camera, rgb) {
+  if (!pass || !nebulae) return;
+  let nearestDist = Infinity;
+  let nearestColor = null;
+  let nearestPos = null;
+  nebulae.clouds.forEach((cloud) => {
+    const d = shipGroup.position.distanceTo(cloud.pos);
+    if (d < nearestDist) {
+      nearestDist = d;
+      nearestColor = cloud.color;
+      nearestPos = cloud.pos;
+    }
+  });
+  if (nearestDist > 60 || !nearestPos) {
+    pass.enabled = false;
+    return;
+  }
+  pass.enabled = true;
+  const screenPos = nearestPos.clone().project(camera);
+  pass.uniforms.lightScreenPos.value.set((screenPos.x + 1) / 2, (screenPos.y + 1) / 2);
+  pass.uniforms.lightColor.value.set(nearestColor.r, nearestColor.g, nearestColor.b);
+  pass.uniforms.exposure.value = 0.15 * rgb * (1 - nearestDist / 60);
+}
+
+function updateEnvMap(envMapData, renderer, scene, shipGroup, state, frameCount) {
+  if (!envMapData || !state.quality.current || QUALITY_PRESETS[state.quality.current].envMap === false) return;
+  if (frameCount % 30 !== 0) return;
+  envMapData.cubeCamera.position.copy(shipGroup.position);
+  shipGroup.visible = false;
+  envMapData.cubeCamera.update(renderer, scene);
+  shipGroup.visible = true;
 }
 
 function toggleCustomizationPanel(state) {
@@ -834,12 +926,15 @@ function initThreeScene(canvas) {
     composer.addPass(crackPass);
     const dimensionShiftPass = new ShaderPass(DimensionShiftShader);
     composer.addPass(dimensionShiftPass);
+    const volumetricPass = createVolumetricPass(composer);
+    composer.addPass(volumetricPass);
     composer.addPass(new OutputPass());
     elements.chromaPass = chromaPass;
     elements.motionBlurPass = motionBlurPass;
     elements.lensingPass = lensingPass;
     elements.crackPass = crackPass;
     elements.dimensionShiftPass = dimensionShiftPass;
+    elements.volumetricPass = volumetricPass;
     renderFn = () => composer.render();
   } catch (e) {
     console.warn('Post-processing failed, using basic renderer:', e);
@@ -887,7 +982,7 @@ function initThreeScene(canvas) {
       dead: false, respawnTimer: 0,
     },
     achievements: {
-      stats: { kills: 0, distanceTraveled: 0, maxSpeedReached: 0, barrelRolls: 0, flips: 0, sonicBooms: 0, maxCombo: 0, timeSinceLastDamage: 0, hyperspaceJumps: 0, cometsDestroyed: 0, empBlasts: 0, maxEMPKills: 0, stormsSurvivedClean: 0, whaleProximity: false, dimensionShifts: 0 },
+      stats: { kills: 0, distanceTraveled: 0, maxSpeedReached: 0, barrelRolls: 0, flips: 0, sonicBooms: 0, maxCombo: 0, timeSinceLastDamage: 0, hyperspaceJumps: 0, cometsDestroyed: 0, empBlasts: 0, maxEMPKills: 0, stormsSurvivedClean: 0, whaleProximity: false, dimensionShifts: 0, maxScore: 0, bossesDefeated: 0 },
       unlocked: new Set(), popupQueue: [], activePopup: null, popupTimer: 0,
     },
     prevShipPosition: null,
@@ -929,11 +1024,21 @@ function initThreeScene(canvas) {
       playing: false, playTimer: 0, playDuration: 3.0, playIndex: 0,
       deathPosition: null, orbitAngle: 0,
     },
+    score: { current: 0, highScore: 0, multiplier: 1.0, multiplierTimer: 0 },
+    shield: { energy: 100, maxEnergy: 100, rechargeRate: 8, rechargeDelay: 3, lastDrainTime: 0, drainPerAbsorb: 25 },
+    mining: { resources: { crystal: 0, metal: 0, energy: 0 }, pickupPool: [] },
+    boss: {
+      active: false, spawnThreshold: 50, entity: null,
+      health: 0, maxHealth: 0, segments: [],
+      attackTimer: 0, attackInterval: 2.0, projectiles: [],
+      defeated: false, spawnCooldown: 0,
+    },
   };
 
-  // Load persisted achievements
+  // Load persisted data
   const savedAch = loadAchievements();
   if (savedAch.size > 0) state.achievements.unlocked = savedAch;
+  state.score.highScore = loadHighScore();
 
   // Add weather achievements
   ACHIEVEMENTS.push(
@@ -957,6 +1062,19 @@ function initThreeScene(canvas) {
 
   // Initialize multiplayer
   initMultiplayer(state, scene);
+
+  // Radio chatter
+  elements.radioChatter = createRadioChatter(elements.sound);
+
+  // Mining pickup pool
+  state.mining.pickupPool = createPickupPool(scene, 15);
+
+  // Env map for ship reflections
+  elements.envMapData = createSpaceEnvMap(renderer, scene);
+  if (elements.titleMesh && elements.envMapData) {
+    elements.titleMesh.material.envMap = elements.envMapData.cubeRenderTarget.texture;
+    elements.titleMesh.material.envMapIntensity = 0.3;
+  }
 
   startAnimationLoop(renderFn, elements, camera, shipGroup, physics, input, state, lights, rgbState, scene, renderer);
   setupResize(camera, renderer, composer, bloomPass);
@@ -1432,15 +1550,18 @@ function createRainbowTrail(scene, count) {
   return { mesh, positions, colors, count, head: 0 };
 }
 
-function updateRainbowTrail(trail, shipGroup, elapsed, rgb) {
+function updateRainbowTrail(trail, shipGroup, elapsed, rgb, state) {
   const rgbVal = rgb !== undefined ? rgb : 0.4;
   const i = trail.head;
   trail.positions[i * 3] = shipGroup.position.x;
   trail.positions[i * 3 + 1] = shipGroup.position.y;
   trail.positions[i * 3 + 2] = shipGroup.position.z;
 
+  const baseColor = state ? new THREE.Color(state.customization.contrailColor) : new THREE.Color(1, 0.5, 0.2);
+  const baseHSL = {};
+  baseColor.getHSL(baseHSL);
   const cycleSpeed = 0.1 + rgbVal * 0.9;
-  const color = new THREE.Color().setHSL((elapsed * cycleSpeed) % 1, 0.3 + rgbVal * 0.7, 0.3 + rgbVal * 0.3);
+  const color = new THREE.Color().setHSL((baseHSL.h + elapsed * cycleSpeed) % 1, 0.3 + rgbVal * 0.7, 0.3 + rgbVal * 0.3);
   trail.colors[i * 3] = color.r;
   trail.colors[i * 3 + 1] = color.g;
   trail.colors[i * 3 + 2] = color.b;
@@ -1703,6 +1824,90 @@ function wrapAsteroids(asteroids, shipPos) {
     }
   }
   asteroids.debris.geometry.attributes.position.needsUpdate = true;
+}
+
+// ---------------------------------------------------------------------------
+// Asteroid mining pickups
+// ---------------------------------------------------------------------------
+
+const RESOURCE_TYPES = [
+  { type: 'crystal', color: 0x4488ff, emissive: 0x2244ff, chance: 0.3 },
+  { type: 'metal',   color: 0xaaaaaa, emissive: 0x666666, chance: 0.4 },
+  { type: 'energy',  color: 0x44ff44, emissive: 0x22aa22, chance: 0.3 },
+];
+
+function createPickupPool(scene, count) {
+  count = count || 15;
+  const pool = [];
+  for (let i = 0; i < count; i++) {
+    const geo = new THREE.OctahedronGeometry(0.4, 0);
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.5,
+      transparent: true, opacity: 0, blending: THREE.AdditiveBlending,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.visible = false;
+    scene.add(mesh);
+    const glow = new THREE.PointLight(0xffffff, 0, 5);
+    mesh.add(glow);
+    pool.push({ mesh, glow, active: false, type: null, lifetime: 0, velocity: new THREE.Vector3() });
+  }
+  return pool;
+}
+
+function spawnPickup(pool, position) {
+  if (Math.random() > 0.4) return;
+  for (const pickup of pool) {
+    if (!pickup.active) {
+      let roll = Math.random(), cumChance = 0, chosen = RESOURCE_TYPES[0];
+      for (const rt of RESOURCE_TYPES) { cumChance += rt.chance; if (roll < cumChance) { chosen = rt; break; } }
+      pickup.active = true;
+      pickup.type = chosen.type;
+      pickup.lifetime = 8.0;
+      pickup.mesh.position.copy(position);
+      pickup.mesh.material.color.setHex(chosen.color);
+      pickup.mesh.material.emissive.setHex(chosen.emissive);
+      pickup.mesh.material.opacity = 0.8;
+      pickup.mesh.visible = true;
+      pickup.glow.color.setHex(chosen.color);
+      pickup.glow.intensity = 20;
+      pickup.velocity.set((Math.random()-0.5)*2, (Math.random()-0.5)*2, (Math.random()-0.5)*2);
+      return;
+    }
+  }
+}
+
+function updatePickups(pool, state, shipGroup, delta, elapsed) {
+  pool.forEach((pickup) => {
+    if (!pickup.active) return;
+    pickup.lifetime -= delta;
+    pickup.mesh.rotation.x += delta * 2;
+    pickup.mesh.rotation.y += delta * 3;
+    pickup.mesh.position.addScaledVector(pickup.velocity, delta * 0.5);
+    const dist = pickup.mesh.position.distanceTo(shipGroup.position);
+    if (dist < 15) {
+      const toShip = new THREE.Vector3().subVectors(shipGroup.position, pickup.mesh.position).normalize();
+      pickup.mesh.position.addScaledVector(toShip, (1 - dist / 15) * 20 * delta);
+    }
+    if (dist < 2) {
+      state.mining.resources[pickup.type]++;
+      pickup.active = false;
+      pickup.mesh.visible = false;
+      addScore(state, 25);
+      updateResourceHUD(state);
+      return;
+    }
+    if (pickup.lifetime < 2) pickup.mesh.material.opacity = 0.8 * (pickup.lifetime / 2);
+    if (pickup.lifetime <= 0) { pickup.active = false; pickup.mesh.visible = false; }
+    pickup.glow.intensity = 20 + Math.sin(elapsed * 5) * 10;
+  });
+}
+
+function updateResourceHUD(state) {
+  const el = document.getElementById('resource-hud');
+  if (!el) return;
+  const r = state.mining.resources;
+  el.innerHTML = '<span style="color:#4488ff;">&#9670; ' + r.crystal + '</span> <span style="color:#aaa;">&#9670; ' + r.metal + '</span> <span style="color:#44ff44;">&#9670; ' + r.energy + '</span>';
 }
 
 function updateAsteroidProximity(asteroids, shipGroup) {
@@ -1985,7 +2190,7 @@ function createContrail(scene, side, count) {
   return { mesh, positions, colors, ages, velocities, count, head: 0, side, frame: 0 };
 }
 
-function updateContrail(trail, shipGroup, physics, nebulae, delta, rgb) {
+function updateContrail(trail, shipGroup, physics, nebulae, delta, rgb, state) {
   const rgbVal = rgb !== undefined ? rgb : 0.4;
   trail.frame++;
   const speedRatio = physics.speed / physics.maxSpeed;
@@ -2039,7 +2244,8 @@ function updateContrail(trail, shipGroup, physics, nebulae, delta, rgb) {
       trail.positions[i * 3 + 1] -= 0.01 * delta;
 
       let brightness = Math.max(0, 1 - trail.ages[i] / 4) * (0.3 + rgbVal * 0.7);
-      let cr = 1, cg = 1, cb = 1;
+      const cc = state ? new THREE.Color(state.customization.contrailColor) : new THREE.Color(1, 1, 1);
+      let cr = cc.r, cg = cc.g, cb = cc.b;
 
       // Nebula color blending
       if (nebulae) {
@@ -2584,7 +2790,7 @@ function fireMissile(pool, shipGroup, physics, asteroids, spreadAngle) {
   }
 }
 
-function updateMissiles(pool, asteroids, shipGroup, elapsed, delta, shockwaves, explosions, rgb, comets) {
+function updateMissiles(pool, asteroids, shipGroup, elapsed, delta, shockwaves, explosions, rgb, comets, pickupPool, state, elements, scene) {
   let kills = 0;
   for (let i = 0; i < pool.count; i++) {
     const s = pool.states[i];
@@ -2631,6 +2837,7 @@ function updateMissiles(pool, asteroids, shipGroup, elapsed, delta, shockwaves, 
             shipGroup.position.y + r * Math.sin(phi) * Math.sin(theta),
             shipGroup.position.z + r * Math.cos(phi)
           );
+          if (pickupPool) spawnPickup(pickupPool, am.position.clone());
           const texts = ['DESTROYED!', 'OBLITERATED!', 'ANNIHILATED!', 'VAPORIZED!'];
           showActionText(texts[Math.floor(Math.random() * texts.length)]);
           kills++;
@@ -2652,6 +2859,19 @@ function updateMissiles(pool, asteroids, shipGroup, elapsed, delta, shockwaves, 
           c.trail.positions.fill(0); c.trail.mesh.geometry.attributes.position.needsUpdate = true;
           showActionText('COMET DESTROYED!');
           kills++;
+          break;
+        }
+      }
+    }
+
+    // Boss segment hit detection
+    if (!hit && state && state.boss.active && state.boss.segments) {
+      for (const seg of state.boss.segments) {
+        if (!seg.userData.alive) continue;
+        const segWorld = seg.getWorldPosition(new THREE.Vector3());
+        if (segWorld.distanceTo(s.position) < 3) {
+          hit = true;
+          damageBossSegment(state, elements, seg, 25, scene, elapsed, rgb);
           break;
         }
       }
@@ -2921,8 +3141,10 @@ function checkShipCollisions(asteroids, shipGroup, state, elements, elapsed, rgb
   asteroids.meshes.forEach((m) => {
     const hitDist = (m.userData.size || 1) + 1;
     if (m.position.distanceTo(shipGroup.position) < hitDist) {
-      if (rgb > 0.7) {
+      if (state.shield.energy > 0 && rgb > 0.3) {
         // Shield absorbs
+        state.shield.energy = Math.max(0, state.shield.energy - state.shield.drainPerAbsorb);
+        state.shield.lastDrainTime = elapsed;
         elements.shield.rippleTime = elapsed;
         showActionText('SHIELD ABSORBED!');
         triggerDamageSound(elements.sound);
@@ -3049,7 +3271,12 @@ function triggerShipDeath(state, elements, shipGroup, elapsed) {
   triggerExplosion(elements.explosions, shipGroup.position.clone(), 1.0);
   triggerExplosionSound(elements.sound);
   triggerShockwave(elements.shockwaves, shipGroup.position.clone(), elapsed);
-  showActionText('DESTROYED!');
+  if (state.score.current >= state.score.highScore && state.score.current > 0) {
+    saveHighScore(state.score.current);
+    showActionText('NEW HIGH SCORE: ' + state.score.current);
+  } else {
+    showActionText('DESTROYED! SCORE: ' + state.score.current);
+  }
   state.explosionShake = 2.0;
   if (elements.titleMesh) elements.titleMesh.visible = false;
   elements.tagMeshes.forEach(m => { m.visible = false; });
@@ -3068,6 +3295,8 @@ function respawnShip(state, elements, shipGroup, physics) {
   if (elements.titleMesh) elements.titleMesh.visible = true;
   elements.tagMeshes.forEach(m => { m.visible = true; });
   elements.linkMeshes.forEach(m => { m.visible = true; });
+  state.score.current = 0;
+  state.score.multiplier = 1.0;
   endDeathReplay(state);
   showActionText('RESPAWNED!');
 }
@@ -3109,6 +3338,22 @@ function updateHealthSystem(state, elements, elapsed, delta, shipGroup, physics)
       respawnShip(state, elements, shipGroup, physics);
     }
   }
+}
+
+function updateShieldEnergy(state, elapsed, delta) {
+  if (elapsed - state.shield.lastDrainTime > state.shield.rechargeDelay) {
+    state.shield.energy = Math.min(state.shield.maxEnergy, state.shield.energy + state.shield.rechargeRate * delta);
+  }
+  const bar = document.getElementById('shield-bar-inner');
+  if (bar) {
+    const pct = (state.shield.energy / state.shield.maxEnergy) * 100;
+    bar.style.width = pct + '%';
+    if (pct > 50) bar.style.background = 'linear-gradient(90deg, #4488ff, #66aaff)';
+    else if (pct > 20) bar.style.background = 'linear-gradient(90deg, #ffaa00, #ffcc44)';
+    else bar.style.background = 'linear-gradient(90deg, #ff3333, #ff6644)';
+  }
+  const container = document.getElementById('shield-bar-hud');
+  if (container) container.style.opacity = state.shield.energy < state.shield.maxEnergy ? '1' : '0.5';
 }
 
 // ---------------------------------------------------------------------------
@@ -3170,6 +3415,37 @@ function updateAchievementPopups(state, elements, delta) {
     });
     triggerAchievementSound(elements.sound);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Score system
+// ---------------------------------------------------------------------------
+
+function loadHighScore() {
+  try {
+    const raw = localStorage.getItem('danielstevens-highscore');
+    if (raw) return parseInt(raw) || 0;
+  } catch (e) { /* silent */ }
+  return 0;
+}
+
+function saveHighScore(score) {
+  try { localStorage.setItem('danielstevens-highscore', String(score)); } catch (e) { /* silent */ }
+}
+
+function addScore(state, points) {
+  state.score.current += Math.floor(points * state.score.multiplier);
+  if (state.score.current > state.score.highScore) {
+    state.score.highScore = state.score.current;
+  }
+  state.achievements.stats.maxScore = Math.max(state.achievements.stats.maxScore, state.score.current);
+}
+
+function updateScoreHUD(state) {
+  const el = document.getElementById('score-hud');
+  if (el) el.textContent = 'SCORE: ' + state.score.current;
+  const hiEl = document.getElementById('highscore-hud');
+  if (hiEl) hiEl.textContent = 'HI: ' + state.score.highScore;
 }
 
 // ---------------------------------------------------------------------------
@@ -3555,6 +3831,121 @@ function updateEngineSound(sound, physics, rgb, freqMult) {
   sound.engines.oscR.frequency.value = 90 * fm * (1 + speedRatio * 0.5);
   // Master gain scales with RGB
   sound.masterGain.gain.value = 0.1 + rgb * 0.4;
+}
+
+function createSpatialPanner(ctx, refDist, maxDist) {
+  const panner = ctx.createPanner();
+  panner.panningModel = 'HRTF';
+  panner.distanceModel = 'inverse';
+  panner.refDistance = refDist || 10;
+  panner.maxDistance = maxDist || 200;
+  panner.rolloffFactor = 1;
+  return panner;
+}
+
+function updateAudioListener(sound, camera) {
+  if (!sound || !sound.ctx || sound.ctx.state !== 'running') return;
+  const listener = sound.ctx.listener;
+  const p = camera.position;
+  const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+  const up = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
+  if (listener.positionX) {
+    listener.positionX.value = p.x;
+    listener.positionY.value = p.y;
+    listener.positionZ.value = p.z;
+    listener.forwardX.value = fwd.x;
+    listener.forwardY.value = fwd.y;
+    listener.forwardZ.value = fwd.z;
+    listener.upX.value = up.x;
+    listener.upY.value = up.y;
+    listener.upZ.value = up.z;
+  } else if (listener.setPosition) {
+    listener.setPosition(p.x, p.y, p.z);
+    listener.setOrientation(fwd.x, fwd.y, fwd.z, up.x, up.y, up.z);
+  }
+}
+
+function triggerSpatialExplosionSound(sound, position) {
+  if (!sound || sound.ctx.state !== 'running') return;
+  const ctx = sound.ctx;
+  const panner = createSpatialPanner(ctx, 5, 100);
+  panner.positionX.value = position.x;
+  panner.positionY.value = position.y;
+  panner.positionZ.value = position.z;
+  const bufferSize = ctx.sampleRate * 0.3;
+  const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.08));
+  const source = ctx.createBufferSource();
+  source.buffer = buffer;
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0.15, ctx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+  source.connect(gain);
+  gain.connect(panner);
+  panner.connect(sound.masterGain);
+  source.start();
+}
+
+function createRadioChatter(sound) {
+  return { timer: 15 + Math.random() * 20, interval: 15, active: false, duration: 0 };
+}
+
+function triggerRadioChatter(sound, rgb) {
+  if (!sound || sound.ctx.state !== 'running') return;
+  const ctx = sound.ctx;
+  const duration = 0.5 + Math.random() * 1.5;
+  const bufferSize = Math.floor(ctx.sampleRate * duration);
+  const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  // Amplitude modulation to simulate speech cadence
+  const modFreq = 3 + Math.random() * 5;
+  for (let i = 0; i < bufferSize; i++) {
+    const t = i / ctx.sampleRate;
+    const envelope = Math.sin(Math.PI * t / duration);
+    const modulation = 0.5 + 0.5 * Math.sin(2 * Math.PI * modFreq * t);
+    data[i] = (Math.random() * 2 - 1) * envelope * modulation;
+  }
+  // Main voice-like filtered noise
+  const source = ctx.createBufferSource();
+  source.buffer = buffer;
+  source.playbackRate.value = 0.8 + Math.random() * 0.4;
+  const bandpass = ctx.createBiquadFilter();
+  bandpass.type = 'bandpass';
+  bandpass.frequency.value = 800 + Math.random() * 1200;
+  bandpass.Q.value = 5;
+  const gain = ctx.createGain();
+  gain.gain.value = 0.04 * rgb;
+  source.connect(bandpass);
+  bandpass.connect(gain);
+  gain.connect(sound.masterGain);
+  source.start();
+  // Crackle overlay
+  const crackleSize = Math.floor(ctx.sampleRate * duration);
+  const crackleBuffer = ctx.createBuffer(1, crackleSize, ctx.sampleRate);
+  const crackleData = crackleBuffer.getChannelData(0);
+  for (let i = 0; i < crackleSize; i++) crackleData[i] = (Math.random() * 2 - 1);
+  const crackle = ctx.createBufferSource();
+  crackle.buffer = crackleBuffer;
+  const hipass = ctx.createBiquadFilter();
+  hipass.type = 'highpass';
+  hipass.frequency.value = 4000;
+  const crackleGain = ctx.createGain();
+  crackleGain.gain.value = 0.01 * rgb;
+  crackle.connect(hipass);
+  hipass.connect(crackleGain);
+  crackleGain.connect(sound.masterGain);
+  crackle.start();
+}
+
+function updateRadioChatter(chatter, sound, rgb, delta) {
+  if (!chatter) return;
+  chatter.timer -= delta;
+  if (chatter.timer <= 0) {
+    chatter.timer = 15 + Math.random() * 20;
+    triggerRadioChatter(sound, rgb);
+    showActionText('INCOMING TRANSMISSION');
+  }
 }
 
 function triggerBoostSound(sound) {
@@ -4065,12 +4456,13 @@ function createProceduralMusic(sound) {
   };
 }
 
-function updateProceduralMusic(music, sound, physics, state, rgb, delta, weather, whaleDist) {
+function updateProceduralMusic(music, sound, physics, state, rgb, delta, weather, whaleDist, dangerLevel) {
   if (!music || !sound || sound.ctx.state !== 'running') return;
   const ctx = sound.ctx;
 
-  // BPM scales with speed
-  music.bpm = Math.max(60, Math.min(140, 60 + (physics.speed / physics.maxSpeed) * 80));
+  // BPM scales with speed and danger
+  const dl = dangerLevel || 0;
+  music.bpm = Math.max(60, Math.min(180, 60 + (physics.speed / physics.maxSpeed) * 80 + dl * 40));
   const beatInterval = 60 / music.bpm;
   const sixteenth = beatInterval / 4;
 
@@ -4126,13 +4518,14 @@ function updateProceduralMusic(music, sound, physics, state, rgb, delta, weather
   const arpTarget = rgb * 0.1 * Math.min(1, physics.speed / 15);
   const hatTarget = rgb * 0.06;
   const combatTarget = state.cometStorm.active ? rgb * 0.1 : 0;
+  const dangerBoost = dl * 0.15;
 
   const lerpRate = 1 - Math.pow(0.05, delta);
   layers.padGain.gain.value += (padTarget - layers.padGain.gain.value) * lerpRate;
   layers.kickGain.gain.value += (kickTarget - layers.kickGain.gain.value) * lerpRate;
   layers.arpGain.gain.value += (arpTarget - layers.arpGain.gain.value) * lerpRate;
   layers.hatGain.gain.value += (hatTarget - layers.hatGain.gain.value) * lerpRate;
-  layers.combatGain.gain.value += (combatTarget - layers.combatGain.gain.value) * lerpRate;
+  layers.combatGain.gain.value += (Math.max(combatTarget, dangerBoost * rgb) - layers.combatGain.gain.value) * lerpRate;
 
   // Reactive layers — whale proximity choir
   const choirTarget = whaleDist < 80 ? rgb * 0.06 * (1 - whaleDist / 80) : 0;
@@ -5306,6 +5699,7 @@ function fireBeamWeapon(shipGroup, physics, asteroids, elements, scene, state, e
         if (perpDist < 4) {
           triggerExplosion(elements.explosions, m.position.clone(), rgb);
           triggerShockwave(elements.shockwaves, m.position.clone(), elapsed);
+          if (state.mining.pickupPool) spawnPickup(state.mining.pickupPool, m.position.clone());
           const theta = Math.random() * Math.PI * 2;
           const phi = Math.acos(2 * Math.random() - 1);
           const r = 80 + Math.random() * 70;
@@ -5321,6 +5715,20 @@ function fireBeamWeapon(shipGroup, physics, asteroids, elements, scene, state, e
   }
   state.achievements.stats.kills += hits;
 
+  // Boss segment beam check
+  if (state.boss && state.boss.active && state.boss.segments) {
+    state.boss.segments.forEach((seg) => {
+      if (!seg.userData.alive) return;
+      const segWorld = seg.getWorldPosition(new THREE.Vector3());
+      const toSeg = segWorld.clone().sub(origin);
+      const projDist = toSeg.dot(fwd);
+      if (projDist > 0 && projDist < 150) {
+        const perpDist = toSeg.clone().sub(fwd.clone().multiplyScalar(projDist)).length();
+        if (perpDist < 4) damageBossSegment(state, elements, seg, 50, scene, elapsed, rgb);
+      }
+    });
+  }
+
   // Visual beam line
   const endPoint = origin.clone().add(fwd.clone().multiplyScalar(150));
   const beamGeo = new THREE.BufferGeometry().setFromPoints([origin, endPoint]);
@@ -5332,9 +5740,178 @@ function fireBeamWeapon(shipGroup, physics, asteroids, elements, scene, state, e
   triggerExplosionSound(elements.sound);
   if (hits > 0) {
     triggerBassDropSound(elements.sound);
+    addScore(state, hits * 100);
     showActionText('BEAM: ' + hits + ' DESTROYED!');
   }
   return hits;
+}
+
+// ---------------------------------------------------------------------------
+// Boss fight
+// ---------------------------------------------------------------------------
+
+function createBoss(scene, shipGroup) {
+  const group = new THREE.Group();
+  const segments = [];
+  const segmentCount = 6;
+  const maxHealth = segmentCount * 50;
+  const coreGeo = new THREE.IcosahedronGeometry(5, 1);
+  const coreMat = new THREE.MeshStandardMaterial({
+    color: 0xff2222, emissive: 0xff0000, emissiveIntensity: 0.5, metalness: 0.6, roughness: 0.3,
+  });
+  const core = new THREE.Mesh(coreGeo, coreMat);
+  group.add(core);
+  for (let i = 0; i < segmentCount; i++) {
+    const angle = (i / segmentCount) * Math.PI * 2;
+    const segGeo = new THREE.OctahedronGeometry(2, 0);
+    const segMat = new THREE.MeshStandardMaterial({
+      color: 0xcc4444, emissive: 0xff2200, emissiveIntensity: 0.3, transparent: true, opacity: 1.0,
+    });
+    const seg = new THREE.Mesh(segGeo, segMat);
+    seg.position.set(Math.cos(angle) * 8, Math.sin(angle) * 8, 0);
+    seg.userData = { alive: true, health: 50, index: i, baseAngle: angle };
+    group.add(seg);
+    segments.push(seg);
+  }
+  const theta = Math.random() * Math.PI * 2;
+  const phi = Math.acos(2 * Math.random() - 1);
+  group.position.set(
+    shipGroup.position.x + 80 * Math.sin(phi) * Math.cos(theta),
+    shipGroup.position.y + 80 * Math.sin(phi) * Math.sin(theta),
+    shipGroup.position.z + 80 * Math.cos(phi)
+  );
+  scene.add(group);
+  const projectiles = [];
+  for (let p = 0; p < 8; p++) {
+    const pGeo = new THREE.SphereGeometry(0.5, 8, 8);
+    const pMat = new THREE.MeshBasicMaterial({ color: 0xff4400, transparent: true, opacity: 0 });
+    const pMesh = new THREE.Mesh(pGeo, pMat);
+    pMesh.visible = false;
+    scene.add(pMesh);
+    projectiles.push({ mesh: pMesh, velocity: new THREE.Vector3(), active: false, lifetime: 0 });
+  }
+  return { group, core, segments, maxHealth, projectiles };
+}
+
+function updateBoss(state, elements, shipGroup, physics, scene, elapsed, delta, rgb) {
+  const boss = state.boss;
+  if (!boss.active && !boss.defeated && state.achievements.stats.kills >= boss.spawnThreshold && boss.spawnCooldown <= 0) {
+    boss.entity = createBoss(scene, shipGroup);
+    boss.health = boss.entity.maxHealth;
+    boss.maxHealth = boss.entity.maxHealth;
+    boss.segments = boss.entity.segments;
+    boss.active = true;
+    boss.attackTimer = boss.attackInterval;
+    showActionText('WARNING: BOSS INCOMING!');
+    triggerCometWarning(elements.sound);
+  }
+  if (!boss.active) {
+    if (boss.spawnCooldown > 0) boss.spawnCooldown -= delta;
+    return;
+  }
+  const bossGroup = boss.entity.group;
+  boss.segments.forEach((seg) => {
+    if (!seg.userData.alive) return;
+    seg.userData.baseAngle += delta * 0.5;
+    seg.position.set(Math.cos(seg.userData.baseAngle) * 8, Math.sin(seg.userData.baseAngle) * 8, Math.sin(elapsed + seg.userData.index) * 2);
+    seg.rotation.x += delta;
+    seg.rotation.y += delta * 0.7;
+  });
+  const toShip = new THREE.Vector3().subVectors(shipGroup.position, bossGroup.position).normalize();
+  bossGroup.position.addScaledVector(toShip, 3 * delta);
+  boss.attackTimer -= delta;
+  if (boss.attackTimer <= 0) {
+    boss.attackTimer = boss.attackInterval;
+    fireBossProjectile(boss.entity, shipGroup);
+  }
+  updateBossProjectiles(boss.entity.projectiles, shipGroup, state, elements, elapsed, delta, rgb);
+  updateBossHealthHUD(boss);
+  const aliveSegments = boss.segments.filter(s => s.userData.alive).length;
+  if (aliveSegments === 0) defeatBoss(state, elements, boss.entity, scene, elapsed, rgb);
+}
+
+function fireBossProjectile(entity, shipGroup) {
+  for (const proj of entity.projectiles) {
+    if (!proj.active) {
+      proj.active = true;
+      proj.lifetime = 4.0;
+      proj.mesh.visible = true;
+      proj.mesh.material.opacity = 0.8;
+      proj.mesh.position.copy(entity.group.position);
+      const dir = new THREE.Vector3().subVectors(shipGroup.position, entity.group.position).normalize();
+      proj.velocity.copy(dir).multiplyScalar(15);
+      return;
+    }
+  }
+}
+
+function updateBossProjectiles(projectiles, shipGroup, state, elements, elapsed, delta, rgb) {
+  projectiles.forEach((proj) => {
+    if (!proj.active) return;
+    proj.lifetime -= delta;
+    proj.mesh.position.addScaledVector(proj.velocity, delta);
+    if (proj.lifetime <= 0) { proj.active = false; proj.mesh.visible = false; return; }
+    if (proj.mesh.position.distanceTo(shipGroup.position) < 3 && !state.health.invincible && !state.health.dead) {
+      const damage = 15;
+      state.health.current = Math.max(0, state.health.current - damage);
+      state.health.crackIntensity = clamp01(state.health.crackIntensity + damage / 100);
+      state.health.lastDamageTime = elapsed;
+      state.achievements.stats.timeSinceLastDamage = 0;
+      triggerDamageSound(elements.sound);
+      state.explosionShake = 0.5;
+      showActionText('BOSS HIT!');
+      proj.active = false;
+      proj.mesh.visible = false;
+      if (state.health.current <= 0) triggerShipDeath(state, elements, shipGroup, elapsed);
+    }
+  });
+}
+
+function damageBossSegment(state, elements, segment, damage, scene, elapsed, rgb) {
+  if (!segment.userData.alive) return false;
+  segment.userData.health -= damage;
+  if (segment.userData.health <= 0) {
+    segment.userData.alive = false;
+    segment.visible = false;
+    state.boss.health -= 50;
+    triggerExplosion(elements.explosions, segment.getWorldPosition(new THREE.Vector3()), rgb);
+    triggerShockwave(elements.shockwaves, segment.getWorldPosition(new THREE.Vector3()), elapsed);
+    triggerExplosionSound(elements.sound);
+    addScore(state, 200);
+    showActionText('SEGMENT DESTROYED!');
+    return true;
+  }
+  segment.material.emissiveIntensity = 1.0;
+  setTimeout(() => { if (segment.material) segment.material.emissiveIntensity = 0.3; }, 100);
+  return false;
+}
+
+function defeatBoss(state, elements, entity, scene, elapsed, rgb) {
+  state.boss.active = false;
+  state.boss.defeated = true;
+  state.boss.spawnCooldown = 120;
+  state.boss.spawnThreshold += 50;
+  state.achievements.stats.bossesDefeated = (state.achievements.stats.bossesDefeated || 0) + 1;
+  triggerExplosion(elements.explosions, entity.group.position.clone(), rgb);
+  triggerExplosion(elements.explosions, entity.group.position.clone(), rgb);
+  triggerShockwave(elements.shockwaves, entity.group.position.clone(), elapsed);
+  triggerTriumphantHornSound(elements.sound);
+  addScore(state, 1000);
+  showActionText('BOSS DEFEATED!');
+  scene.remove(entity.group);
+  entity.projectiles.forEach(p => { p.active = false; p.mesh.visible = false; scene.remove(p.mesh); });
+  state.boss.defeated = false;
+}
+
+function updateBossHealthHUD(boss) {
+  const bar = document.getElementById('boss-health-inner');
+  if (!bar) return;
+  const container = document.getElementById('boss-health-hud');
+  if (container) container.style.display = boss.active ? 'block' : 'none';
+  if (boss.active) {
+    const pct = (boss.health / boss.maxHealth) * 100;
+    bar.style.width = pct + '%';
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -5374,6 +5951,14 @@ function showFlightHUD() {
   if (playersHud) playersHud.style.display = 'block';
   const controlsHint = document.getElementById('controls-hint');
   if (controlsHint) controlsHint.style.display = 'block';
+  const scoreHud = document.getElementById('score-hud');
+  if (scoreHud) scoreHud.style.display = 'block';
+  const highscoreHud = document.getElementById('highscore-hud');
+  if (highscoreHud) highscoreHud.style.display = 'block';
+  const shieldHud = document.getElementById('shield-bar-hud');
+  if (shieldHud) shieldHud.style.display = 'block';
+  const resourceHud = document.getElementById('resource-hud');
+  if (resourceHud) resourceHud.style.display = 'block';
 }
 
 // ---------------------------------------------------------------------------
@@ -5628,11 +6213,11 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
 
       // Rainbow trail behind ship (opacity and speed scaled by RGB)
       elements.rainbowTrail.mesh.material.opacity = 0.1 + rgb * 0.5;
-      updateRainbowTrail(elements.rainbowTrail, shipGroup, elapsed, rgb);
+      updateRainbowTrail(elements.rainbowTrail, shipGroup, elapsed, rgb, state);
 
       // Contrail trails (brightness scaled by RGB)
-      updateContrail(elements.contrailL, shipGroup, physics, elements.nebulae, delta, rgb);
-      updateContrail(elements.contrailR, shipGroup, physics, elements.nebulae, delta, rgb);
+      updateContrail(elements.contrailL, shipGroup, physics, elements.nebulae, delta, rgb, state);
+      updateContrail(elements.contrailR, shipGroup, physics, elements.nebulae, delta, rgb, state);
 
       // Sonic boom — speed threshold
       if (physics.speed > physics.maxSpeed * 0.8 && !state.sonicBoomFired) {
@@ -5649,6 +6234,7 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
         triggerShockwave(elements.shockwaves, shipGroup.position.clone(), elapsed);
         state.achievements.stats.barrelRolls++;
         state.achievements.stats.maxCombo = Math.max(state.achievements.stats.maxCombo, state.barrelRoll.comboCount);
+        addScore(state, 50);
       }
       state.prevRollActive = state.barrelRoll.active;
 
@@ -5664,9 +6250,12 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
 
       // Missiles + explosions
       const prevExplosionActive = elements.explosions.instances.map(i => i.active);
-      const missileKills = updateMissiles(elements.missiles, elements.asteroids, shipGroup, elapsed, delta, elements.shockwaves, elements.explosions, rgb, elements.comets);
+      const missileKills = updateMissiles(elements.missiles, elements.asteroids, shipGroup, elapsed, delta, elements.shockwaves, elements.explosions, rgb, elements.comets, state.mining.pickupPool, state, elements, scene);
       state.achievements.stats.kills += missileKills;
-      if (missileKills > 0) triggerBassDropSound(elements.sound);
+      if (missileKills > 0) {
+        triggerBassDropSound(elements.sound);
+        addScore(state, missileKills * 100);
+      }
       // Detect new explosions for screen shake + boost flash + sound
       elements.explosions.instances.forEach((inst, idx) => {
         if (inst.active && !prevExplosionActive[idx]) {
@@ -5717,9 +6306,13 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
       // Hyperspace jump
       updateHyperspaceCharge(state, input, shipGroup, physics, elements, elapsed, delta, rgb, camera);
 
+      // Boss fight
+      updateBoss(state, elements, shipGroup, physics, scene, elapsed, delta, rgb);
+
       // Collision & health
       checkShipCollisions(elements.asteroids, shipGroup, state, elements, elapsed, rgb);
       updateHealthSystem(state, elements, elapsed, delta, shipGroup, physics);
+      updateShieldEnergy(state, elapsed, delta);
 
       // Death replay (runs during death)
       if (state.replay.playing) {
@@ -5728,7 +6321,9 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
 
       // Achievement tracking
       if (state.prevShipPosition) {
-        state.achievements.stats.distanceTraveled += shipGroup.position.distanceTo(state.prevShipPosition);
+        const dist = shipGroup.position.distanceTo(state.prevShipPosition);
+        state.achievements.stats.distanceTraveled += dist;
+        addScore(state, dist * 0.5);
       }
       state.prevShipPosition = shipGroup.position.clone();
       updateAchievementStats(state, physics, delta);
@@ -5738,6 +6333,9 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
       // Speed HUD
       const speedHud = document.getElementById('speed-hud');
       if (speedHud) speedHud.textContent = 'SPEED: ' + Math.round(physics.speed);
+
+      // Score HUD
+      updateScoreHUD(state);
 
       // Cooldown HUDs
       const jumpHud = document.getElementById('jump-cooldown-hud');
@@ -5751,11 +6349,28 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
         empHud.style.color = state.emp.cooldown > 0 ? 'rgba(100,100,100,0.6)' : 'rgba(255,100,255,0.8)';
       }
 
+      // Spatial audio listener update
+      updateAudioListener(elements.sound, camera);
+
       // Engine sound update
       updateEngineSound(elements.sound, physics, rgb, state.customization.engineFreqMult);
 
+      // Danger level for music intensity
+      let dangerLevel = 0;
+      const nearestAst = elements.asteroids.meshes.reduce((min, m) => Math.min(min, m.position.distanceTo(shipGroup.position)), Infinity);
+      dangerLevel = Math.max(dangerLevel, 1 - clamp01(nearestAst / 30));
+      if (state.cometStorm.active) dangerLevel = Math.max(dangerLevel, 0.7);
+      if (state.boss && state.boss.active) dangerLevel = Math.max(dangerLevel, 0.8);
+      dangerLevel = Math.max(dangerLevel, 1 - state.health.current / state.health.max);
+
       // Procedural music
-      updateProceduralMusic(elements.music, elements.sound, physics, state, rgb, delta, state.weather.current, whaleDist);
+      updateProceduralMusic(elements.music, elements.sound, physics, state, rgb, delta, state.weather.current, whaleDist, dangerLevel);
+
+      // Radio chatter
+      updateRadioChatter(elements.radioChatter, elements.sound, rgb, delta);
+
+      // Mining pickups
+      updatePickups(state.mining.pickupPool, state, shipGroup, delta, elapsed);
 
       // Wormhole portal
       updateWormhole(elements.wormhole, shipGroup, state, elements, elapsed, delta, rgb);
@@ -5903,6 +6518,12 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
         card.position.y = d.yBase + Math.sin(elapsed * d.floatSpeed) * d.floatAmp;
       }
     });
+
+    // Volumetric lighting (god rays from nebulae)
+    updateVolumetricLight(elements.volumetricPass, elements.nebulae, shipGroup, camera, rgbState.intensity);
+
+    // Env map update (every 30 frames)
+    updateEnvMap(elements.envMapData, renderer, scene, shipGroup, state, state.minimapFrame);
 
     renderFn();
   }

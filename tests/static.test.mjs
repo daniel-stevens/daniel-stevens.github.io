@@ -651,9 +651,9 @@ describe('scene.js collision and screen cracks', () => {
     assert.match(scene, /checkShipCollisions/);
   });
 
-  it('shield absorbs at high RGB', () => {
+  it('shield absorbs when shield energy and RGB available', () => {
     assert.match(scene, /SHIELD ABSORBED/);
-    assert.match(scene, /rgb > 0\.7/);
+    assert.match(scene, /rgb > 0\.3/);
   });
 
   it('has ship death and respawn', () => {
@@ -1464,5 +1464,307 @@ describe('Death replay and killcam', () => {
 
   it('replay cleanup in respawnShip', () => {
     assert.match(scene, /respawnShip[\s\S]*?endDeathReplay/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round 6: A1 — Particle trails match ship customization colors
+// ---------------------------------------------------------------------------
+
+describe('A1: Particle trail customization colors', () => {
+  it('updateContrail accepts state parameter', () => {
+    assert.match(scene, /function updateContrail\(trail, shipGroup, physics, nebulae, delta, rgb, state\)/);
+  });
+
+  it('contrail uses customization contrailColor via THREE.Color', () => {
+    assert.match(scene, /new THREE\.Color\(state\.customization\.contrailColor\)/);
+  });
+
+  it('updateRainbowTrail uses contrailColor as base hue', () => {
+    assert.match(scene, /function updateRainbowTrail\(trail, shipGroup, elapsed, rgb, state\)/);
+    assert.match(scene, /baseColor.*contrailColor/);
+  });
+
+  it('call sites pass state to contrail functions', () => {
+    assert.match(scene, /updateContrail\(elements\.contrailL.*state\)/);
+    assert.match(scene, /updateRainbowTrail\(elements\.rainbowTrail.*state\)/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round 6: B2 — Score/leaderboard system
+// ---------------------------------------------------------------------------
+
+describe('B2: Score/leaderboard system', () => {
+  it('state has score object', () => {
+    assert.match(scene, /score:\s*\{[\s\S]*?current:/);
+    assert.match(scene, /highScore/);
+  });
+
+  it('addScore function exists with multiplier', () => {
+    assert.match(scene, /function addScore/);
+    assert.match(scene, /multiplier/);
+  });
+
+  it('loadHighScore and saveHighScore use localStorage', () => {
+    assert.match(scene, /function loadHighScore/);
+    assert.match(scene, /function saveHighScore/);
+    assert.match(scene, /danielstevens-highscore/);
+  });
+
+  it('score HUD elements exist in HTML', () => {
+    assert.match(html, /id=["']score-hud["']/);
+    assert.match(html, /id=["']highscore-hud["']/);
+  });
+
+  it('score shown in showFlightHUD', () => {
+    assert.match(scene, /score-hud/);
+  });
+
+  it('score milestones in ACHIEVEMENTS', () => {
+    assert.match(scene, /TEN THOUSAND/);
+    assert.match(scene, /FIFTY GRAND/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round 6: B3 — Shield energy meter
+// ---------------------------------------------------------------------------
+
+describe('B3: Shield energy meter', () => {
+  it('state has shield energy object', () => {
+    assert.match(scene, /shield:\s*\{[\s\S]*?energy:/);
+    assert.match(scene, /maxEnergy/);
+    assert.match(scene, /rechargeRate/);
+  });
+
+  it('collision checks shield energy', () => {
+    assert.match(scene, /shield\.energy.*>.*0/);
+    assert.match(scene, /rgb > 0\.3/);
+  });
+
+  it('updateShieldEnergy function exists', () => {
+    assert.match(scene, /function updateShieldEnergy/);
+  });
+
+  it('shield bar HUD exists in HTML', () => {
+    assert.match(html, /id=["']shield-bar-hud["']/);
+    assert.match(html, /id=["']shield-bar-inner["']/);
+    assert.match(html, /SHIELD/);
+  });
+
+  it('shield recharges after delay', () => {
+    assert.match(scene, /rechargeDelay/);
+  });
+
+  it('shield drains on absorb', () => {
+    assert.match(scene, /drainPerAbsorb/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round 6: C3 — Music intensity tied to danger
+// ---------------------------------------------------------------------------
+
+describe('C3: Music intensity tied to proximity danger', () => {
+  it('updateProceduralMusic accepts dangerLevel param', () => {
+    assert.match(scene, /function updateProceduralMusic\(music, sound, physics, state, rgb, delta, weather, whaleDist, dangerLevel\)/);
+  });
+
+  it('BPM scales with danger level', () => {
+    assert.match(scene, /dl \* 40/);
+  });
+
+  it('combat gain boosted by danger', () => {
+    assert.match(scene, /dangerBoost/);
+  });
+
+  it('nearest asteroid distance computed for danger', () => {
+    assert.match(scene, /nearestAst/);
+  });
+
+  it('danger level considers boss active', () => {
+    assert.match(scene, /boss\.active[\s\S]*?dangerLevel/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round 6: C1 — Spatial audio (3D positioned sounds)
+// ---------------------------------------------------------------------------
+
+describe('C1: Spatial audio', () => {
+  it('createSpatialPanner function exists', () => {
+    assert.match(scene, /function createSpatialPanner/);
+  });
+
+  it('uses PannerNode with HRTF', () => {
+    assert.match(scene, /panningModel.*HRTF/);
+  });
+
+  it('updateAudioListener function exists', () => {
+    assert.match(scene, /function updateAudioListener/);
+  });
+
+  it('listener position set from camera', () => {
+    assert.match(scene, /listener\.positionX/);
+  });
+
+  it('spatial explosion sound function exists', () => {
+    assert.match(scene, /function triggerSpatialExplosionSound/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round 6: C2 — Radio chatter
+// ---------------------------------------------------------------------------
+
+describe('C2: Radio chatter', () => {
+  it('createRadioChatter function exists', () => {
+    assert.match(scene, /function createRadioChatter/);
+  });
+
+  it('triggerRadioChatter function exists', () => {
+    assert.match(scene, /function triggerRadioChatter/);
+  });
+
+  it('uses bandpass filter for voice effect', () => {
+    assert.match(scene, /bandpass/);
+    assert.match(scene, /bandpass[\s\S]*?frequency/);
+  });
+
+  it('updateRadioChatter function exists', () => {
+    assert.match(scene, /function updateRadioChatter/);
+  });
+
+  it('chatter has timer and interval', () => {
+    assert.match(scene, /chatter\.timer/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round 6: B4 — Asteroid mining pickups
+// ---------------------------------------------------------------------------
+
+describe('B4: Asteroid mining pickups', () => {
+  it('RESOURCE_TYPES constant exists', () => {
+    assert.match(scene, /RESOURCE_TYPES/);
+    assert.match(scene, /crystal/);
+    assert.match(scene, /metal/);
+    assert.match(scene, /energy/);
+  });
+
+  it('createPickupPool function exists', () => {
+    assert.match(scene, /function createPickupPool/);
+  });
+
+  it('spawnPickup function exists', () => {
+    assert.match(scene, /function spawnPickup/);
+  });
+
+  it('updatePickups function exists', () => {
+    assert.match(scene, /function updatePickups/);
+  });
+
+  it('state has mining resources', () => {
+    assert.match(scene, /mining:\s*\{[\s\S]*?resources/);
+  });
+
+  it('resource HUD exists in HTML', () => {
+    assert.match(html, /id=["']resource-hud["']/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round 6: B1 — Boss fight
+// ---------------------------------------------------------------------------
+
+describe('B1: Boss fight', () => {
+  it('createBoss function exists', () => {
+    assert.match(scene, /function createBoss/);
+  });
+
+  it('updateBoss function exists', () => {
+    assert.match(scene, /function updateBoss/);
+  });
+
+  it('boss has segments with individual health', () => {
+    assert.match(scene, /segmentCount/);
+    assert.match(scene, /seg\.userData/);
+  });
+
+  it('boss fires projectiles at player', () => {
+    assert.match(scene, /function fireBossProjectile/);
+    assert.match(scene, /attackTimer/);
+    assert.match(scene, /attackInterval/);
+  });
+
+  it('defeatBoss function triggers big explosion and score', () => {
+    assert.match(scene, /function defeatBoss/);
+    assert.match(scene, /BOSS DEFEATED/);
+  });
+
+  it('boss health bar HUD exists in HTML', () => {
+    assert.match(html, /id=["']boss-health-hud["']/);
+    assert.match(html, /id=["']boss-health-inner["']/);
+  });
+
+  it('state has boss object', () => {
+    assert.match(scene, /boss:\s*\{[\s\S]*?spawnThreshold/);
+  });
+
+  it('BOSS SLAYER achievement exists', () => {
+    assert.match(scene, /BOSS SLAYER/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round 6: A2 — Screen-space reflections on ship hull
+// ---------------------------------------------------------------------------
+
+describe('A2: Screen-space reflections', () => {
+  it('createSpaceEnvMap function with CubeCamera', () => {
+    assert.match(scene, /function createSpaceEnvMap/);
+    assert.match(scene, /CubeCamera/);
+  });
+
+  it('envMapIntensity set on title mesh', () => {
+    assert.match(scene, /envMapIntensity/);
+  });
+
+  it('updateEnvMap function exists', () => {
+    assert.match(scene, /function updateEnvMap/);
+  });
+
+  it('quality presets have envMap setting', () => {
+    assert.match(scene, /envMap:\s*(true|false)/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round 6: A3 — Nebula volumetric lighting (god rays)
+// ---------------------------------------------------------------------------
+
+describe('A3: Nebula volumetric lighting', () => {
+  it('VolumetricLightShader exists with required uniforms', () => {
+    assert.match(scene, /VolumetricLightShader/);
+    assert.match(scene, /lightScreenPos/);
+    assert.match(scene, /lightColor/);
+  });
+
+  it('updateVolumetricLight function exists', () => {
+    assert.match(scene, /function updateVolumetricLight/);
+  });
+
+  it('volumetric pass created', () => {
+    assert.match(scene, /volumetricPass/);
+  });
+
+  it('shader uses radial sampling with illumination decay', () => {
+    assert.match(scene, /godRay/);
+    assert.match(scene, /illuminationDecay/);
+  });
+
+  it('quality presets have volumetric setting', () => {
+    assert.match(scene, /volumetric:\s*(true|false)/);
   });
 });
