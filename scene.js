@@ -316,6 +316,14 @@ const ACHIEVEMENTS = [
   { id: 'dock_master', name: 'DOCK MASTER', desc: 'Fly close to the space station', check: s => s.stationVisited },
 ];
 
+const MISSION_TYPES = [
+  { id: 'hunter', name: 'HUNTER', desc: 'Destroy {n} asteroids', params: [5, 10, 15], stat: 'kills', statDelta: true, reward: { score: 500, crystal: 3 } },
+  { id: 'speed_run', name: 'SPEED RUN', desc: 'Reach speed {n}', params: [30, 35, 40], stat: 'maxSpeedReached', statDelta: false, reward: { score: 300, metal: 2 } },
+  { id: 'survivor', name: 'SURVIVOR', desc: 'Survive {n}s without damage', params: [15, 20, 30], stat: 'timeSinceLastDamage', statDelta: false, reward: { score: 400, energy: 5 } },
+  { id: 'explorer', name: 'EXPLORER', desc: 'Travel {n} units', params: [200, 400, 600], stat: 'distanceTraveled', statDelta: true, reward: { score: 350, metal: 3 } },
+  { id: 'whale_finder', name: 'WHALE FINDER', desc: 'Fly within 20 units of the whale', params: [1], stat: 'whaleProximity', statDelta: false, reward: { score: 600, crystal: 5 } },
+];
+
 const isMobile = window.innerWidth < 768;
 
 // ---------------------------------------------------------------------------
@@ -691,11 +699,14 @@ function beginTransformation() {
   document.body.style.overflow = 'hidden';
 
   setTimeout(() => {
+    const loadingScreen = document.getElementById('loading-screen');
+    if (loadingScreen) loadingScreen.style.display = 'flex';
+
     const canvas = document.getElementById('threejs-canvas');
     document.body.appendChild(canvas);
 
     Array.from(document.body.children).forEach((el) => {
-      if (el.id !== 'threejs-canvas' && el.id !== 'flight-hud' && el.id !== 'speed-hud' && el.id !== 'minimap' && el.id !== 'action-text' && el.id !== 'rgb-slider-hud' && el.id !== 'health-bar-hud' && el.id !== 'achievement-container' && el.id !== 'jump-cooldown-hud' && el.id !== 'emp-cooldown-hud' && el.id !== 'wormhole-cooldown-hud' && el.id !== 'quality-hud' && el.id !== 'fps-counter' && el.id !== 'weather-hud' && el.id !== 'players-hud' && el.id !== 'customization-panel' && el.id !== 'webgl-fallback' && el.id !== 'touch-controls' && el.tagName !== 'SCRIPT' && el.tagName !== 'STYLE') {
+      if (el.id !== 'threejs-canvas' && el.id !== 'flight-hud' && el.id !== 'speed-hud' && el.id !== 'minimap' && el.id !== 'action-text' && el.id !== 'rgb-slider-hud' && el.id !== 'health-bar-hud' && el.id !== 'achievement-container' && el.id !== 'jump-cooldown-hud' && el.id !== 'emp-cooldown-hud' && el.id !== 'wormhole-cooldown-hud' && el.id !== 'quality-hud' && el.id !== 'fps-counter' && el.id !== 'weather-hud' && el.id !== 'players-hud' && el.id !== 'customization-panel' && el.id !== 'webgl-fallback' && el.id !== 'touch-controls' && el.id !== 'loading-screen' && el.id !== 'pause-menu' && el.id !== 'fuel-bar-hud' && el.id !== 'mission-hud' && el.tagName !== 'SCRIPT' && el.tagName !== 'STYLE') {
         el.style.display = 'none';
       }
     });
@@ -748,6 +759,7 @@ function createInputState(canvas) {
       case 'KeyE': input.empCharge = true; break;
       case 'Tab': input.tabRequested = true; e.preventDefault(); break;
       case 'KeyC': input.helpRequested = true; break;
+      case 'Escape': if (input._pauseCallback) input._pauseCallback(); return;
     }
     if (input._konamiCallback) input._konamiCallback(e.code);
   });
@@ -906,7 +918,7 @@ function createShipPhysics() {
   };
 }
 
-function updateShipPhysics(shipGroup, physics, input, delta) {
+function updateShipPhysics(shipGroup, physics, input, delta, state) {
   // Turn input → angular velocity
   if (input.left)  physics.angularVelocity.y += physics.turnSpeed * delta;
   if (input.right) physics.angularVelocity.y -= physics.turnSpeed * delta;
@@ -932,7 +944,8 @@ function updateShipPhysics(shipGroup, physics, input, delta) {
   let thrust = physics.baseSpeed;
   const anyInput = input.forward || input.backward || input.left || input.right;
   if (anyInput) thrust = physics.thrustAccel;
-  if (input.boost) thrust *= physics.boostMultiplier;
+  const canBoost = state && state.fuel ? state.fuel.current > 0 : true;
+  if (input.boost && canBoost) thrust *= physics.boostMultiplier;
 
   physics.velocity.addScaledVector(forward, thrust * delta);
   physics.velocity.multiplyScalar(physics.drag);
@@ -1176,7 +1189,7 @@ function initThreeScene(canvas) {
       dead: false, respawnTimer: 0,
     },
     achievements: {
-      stats: { kills: 0, distanceTraveled: 0, maxSpeedReached: 0, barrelRolls: 0, flips: 0, sonicBooms: 0, maxCombo: 0, timeSinceLastDamage: 0, hyperspaceJumps: 0, cometsDestroyed: 0, empBlasts: 0, maxEMPKills: 0, stormsSurvivedClean: 0, whaleProximity: false, dimensionShifts: 0, maxScore: 0, bossesDefeated: 0, stationVisited: false, konamiActivated: false, screenshotTaken: false },
+      stats: { kills: 0, distanceTraveled: 0, maxSpeedReached: 0, barrelRolls: 0, flips: 0, sonicBooms: 0, maxCombo: 0, timeSinceLastDamage: 0, hyperspaceJumps: 0, cometsDestroyed: 0, empBlasts: 0, maxEMPKills: 0, stormsSurvivedClean: 0, whaleProximity: false, dimensionShifts: 0, maxScore: 0, bossesDefeated: 0, stationVisited: false, konamiActivated: false, screenshotTaken: false, missionsCompleted: 0 },
       unlocked: new Set(), popupQueue: [], activePopup: null, popupTimer: 0,
     },
     prevShipPosition: null,
@@ -1228,6 +1241,9 @@ function initThreeScene(canvas) {
       defeated: false, spawnCooldown: 0,
     },
     konami: { progress: 0, unlocked: false },
+    paused: false,
+    fuel: { current: 100, max: 100, consumption: 15, rechargeRate: 30, emptyShown: false },
+    mission: { active: null, cooldown: 0, cooldownTime: 45, spawnTimer: 20, completed: 0 },
   };
 
   // Load persisted data
@@ -1242,6 +1258,7 @@ function initThreeScene(canvas) {
     { id: 'ice_breaker', name: 'ICE BREAKER', desc: 'Destroy 10 ice crystals', check: s => (s.iceCrystalsDestroyed || 0) >= 10 },
     { id: 'konami_master', name: 'CHAOS MASTER', desc: 'Activate Konami code', check: s => s.konamiActivated },
     { id: 'shutterbug', name: 'SHUTTERBUG', desc: 'Take a screenshot', check: s => s.screenshotTaken },
+    { id: 'mission_master', name: 'MISSION MASTER', desc: 'Complete 5 missions', check: s => (s.missionsCompleted || 0) >= 5 },
   );
 
   // Apply engine/shield customization
@@ -1284,6 +1301,14 @@ function initThreeScene(canvas) {
     screenshotBtn.addEventListener('click', () => {
       takeScreenshot(renderer, state, physics);
     });
+  }
+
+  // Hide loading screen with fade
+  const loadingScreen = document.getElementById('loading-screen');
+  if (loadingScreen) {
+    loadingScreen.style.transition = 'opacity 0.6s ease';
+    loadingScreen.style.opacity = '0';
+    setTimeout(() => { loadingScreen.style.display = 'none'; }, 600);
   }
 
   startAnimationLoop(renderFn, elements, camera, shipGroup, physics, input, state, lights, rgbState, muteState, scene, renderer);
@@ -2543,6 +2568,9 @@ function updatePickups(pool, state, shipGroup, delta, elapsed) {
     }
     if (dist < 2) {
       state.mining.resources[pickup.type]++;
+      if (pickup.type === 'energy') {
+        state.fuel.current = Math.min(state.fuel.max, state.fuel.current + 20);
+      }
       pickup.active = false;
       pickup.mesh.visible = false;
       addScore(state, 25);
@@ -2560,6 +2588,102 @@ function updateResourceHUD(state) {
   if (!el) return;
   const r = state.mining.resources;
   el.innerHTML = '<span style="color:#4488ff;">&#9670; ' + r.crystal + '</span> <span style="color:#aaa;">&#9670; ' + r.metal + '</span> <span style="color:#44ff44;">&#9670; ' + r.energy + '</span>';
+}
+
+function updateFuelHUD(state) {
+  const bar = document.getElementById('fuel-bar-inner');
+  if (!bar) return;
+  const pct = (state.fuel.current / state.fuel.max) * 100;
+  bar.style.width = pct + '%';
+  if (pct < 20) bar.style.background = 'linear-gradient(90deg, #ff2222, #ff4444)';
+  else if (pct < 50) bar.style.background = 'linear-gradient(90deg, #ff8800, #ffaa44)';
+  else bar.style.background = 'linear-gradient(90deg, #ff8800, #ffaa44)';
+}
+
+function spawnMission(state) {
+  const type = MISSION_TYPES[Math.floor(Math.random() * MISSION_TYPES.length)];
+  const difficulty = Math.min(state.mission.completed, type.params.length - 1);
+  const target = type.params[difficulty];
+  const timeLimit = type.id === 'whale_finder' ? 60 : 30 + difficulty * 10;
+  const statStart = type.statDelta ? (state.achievements.stats[type.stat] || 0) : 0;
+  state.mission.active = {
+    type, target, timeLimit, timeRemaining: timeLimit,
+    statStart, progress: 0, desc: type.desc.replace('{n}', target),
+  };
+}
+
+function updateMission(state, delta, elements, shipGroup) {
+  if (!state.mission.active) {
+    state.mission.spawnTimer -= delta;
+    if (state.mission.spawnTimer <= 0) {
+      spawnMission(state);
+      state.mission.spawnTimer = state.mission.cooldownTime;
+      showActionText('NEW MISSION: ' + state.mission.active.type.name, 2500);
+    }
+    return;
+  }
+
+  const m = state.mission.active;
+  m.timeRemaining -= delta;
+
+  // Check progress
+  const stats = state.achievements.stats;
+  if (m.type.id === 'whale_finder') {
+    if (elements.whale && elements.whale.group && shipGroup) {
+      const whaleDist = shipGroup.position.distanceTo(elements.whale.group.position);
+      m.progress = whaleDist < 20 ? 1 : 0;
+    }
+  } else if (m.type.statDelta) {
+    m.progress = (stats[m.type.stat] || 0) - m.statStart;
+  } else {
+    m.progress = stats[m.type.stat] || 0;
+  }
+
+  // Check completion
+  if (m.progress >= m.target) {
+    const reward = m.type.reward;
+    addScore(state, reward.score);
+    if (reward.crystal) state.mining.resources.crystal += reward.crystal;
+    if (reward.metal) state.mining.resources.metal += reward.metal;
+    if (reward.energy) state.mining.resources.energy += reward.energy;
+    state.mission.completed++;
+    state.achievements.stats.missionsCompleted = state.mission.completed;
+    showActionText('MISSION COMPLETE! +' + reward.score, 3000);
+    state.mission.active = null;
+    state.mission.spawnTimer = state.mission.cooldownTime;
+    return;
+  }
+
+  // Timeout
+  if (m.timeRemaining <= 0) {
+    showActionText('MISSION FAILED', 2500);
+    state.mission.active = null;
+    state.mission.spawnTimer = state.mission.cooldownTime;
+  }
+}
+
+function updateMissionHUD(state) {
+  const hud = document.getElementById('mission-hud');
+  if (!hud) return;
+  const m = state.mission.active;
+  if (!m) {
+    hud.style.opacity = '0';
+    return;
+  }
+  hud.style.opacity = '1';
+  const nameEl = document.getElementById('mission-name');
+  const descEl = document.getElementById('mission-desc');
+  const progressBar = document.getElementById('mission-progress-bar-inner');
+  const timerEl = document.getElementById('mission-timer');
+  if (nameEl) nameEl.textContent = m.type.name;
+  if (descEl) descEl.textContent = m.desc;
+  const pct = Math.min(100, (m.progress / m.target) * 100);
+  if (progressBar) progressBar.style.width = pct + '%';
+  if (timerEl) {
+    const t = Math.max(0, Math.ceil(m.timeRemaining));
+    timerEl.textContent = t + 's';
+    timerEl.style.color = t < 10 ? 'rgba(255,50,50,0.9)' : 'rgba(255,136,0,0.6)';
+  }
 }
 
 function updateAsteroidProximity(asteroids, shipGroup) {
@@ -3949,6 +4073,8 @@ function respawnShip(state, elements, shipGroup, physics) {
   elements.linkMeshes.forEach(m => { m.visible = true; });
   state.score.current = 0;
   state.score.multiplier = 1.0;
+  state.fuel.current = state.fuel.max;
+  state.fuel.emptyShown = false;
   endDeathReplay(state);
   showActionText('RESPAWNED!');
 }
@@ -6998,6 +7124,10 @@ function showFlightHUD() {
   if (shieldHud) shieldHud.style.display = 'block';
   const resourceHud = document.getElementById('resource-hud');
   if (resourceHud) resourceHud.style.display = 'block';
+  const fuelHud = document.getElementById('fuel-bar-hud');
+  if (fuelHud) fuelHud.style.display = 'block';
+  const missionHud = document.getElementById('mission-hud');
+  if (missionHud) missionHud.style.display = 'block';
   showTouchControls();
 }
 
@@ -7008,8 +7138,41 @@ function showFlightHUD() {
 function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, input, state, lights, rgbState, muteState, scene, renderer) {
   const clock = new THREE.Clock();
 
+  // Pause/resume toggle
+  let prePauseMuted = false;
+  function togglePause() {
+    if (state.introActive) return;
+    state.paused = !state.paused;
+    const pauseMenu = document.getElementById('pause-menu');
+    if (state.paused) {
+      clock.stop();
+      prePauseMuted = muteState.muted;
+      muteState.muted = true;
+      if (pauseMenu) pauseMenu.style.display = 'flex';
+    } else {
+      clock.start();
+      muteState.muted = prePauseMuted;
+      if (pauseMenu) pauseMenu.style.display = 'none';
+    }
+  }
+  input._pauseCallback = togglePause;
+
+  // Wire pause menu buttons
+  const pauseResumeBtn = document.getElementById('pause-resume');
+  const pauseControlsBtn = document.getElementById('pause-controls');
+  const pauseQuitBtn = document.getElementById('pause-quit');
+  if (pauseResumeBtn) pauseResumeBtn.addEventListener('click', togglePause);
+  if (pauseControlsBtn) pauseControlsBtn.addEventListener('click', () => {
+    togglePause();
+    const overlay = document.getElementById('controls-overlay');
+    if (overlay) overlay.style.display = 'flex';
+  });
+  if (pauseQuitBtn) pauseQuitBtn.addEventListener('click', () => { window.location.reload(); });
+
   function animate() {
     requestAnimationFrame(animate);
+
+    if (state.paused) { renderFn(); return; }
 
     const delta = clock.getDelta();
     const elapsed = clock.getElapsedTime();
@@ -7124,7 +7287,18 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
       if (state.barrelRoll.active) { input.left = false; input.right = false; }
       if (state.flip.active) { input.left = false; input.right = false; input.forward = false; input.backward = false; }
 
-      updateShipPhysics(shipGroup, physics, input, delta);
+      updateShipPhysics(shipGroup, physics, input, delta, state);
+
+      // Fuel drain when boosting
+      if (input.boost && state.fuel.current > 0) {
+        state.fuel.current = Math.max(0, state.fuel.current - state.fuel.consumption * delta);
+        if (state.fuel.current <= 0 && !state.fuel.emptyShown) {
+          state.fuel.emptyShown = true;
+          showActionText('FUEL EMPTY', 2000);
+        }
+      }
+      if (state.fuel.current > 0) state.fuel.emptyShown = false;
+
       input.left = savedLeft; input.right = savedRight;
       input.forward = savedFwd; input.backward = savedBwd;
 
@@ -7357,10 +7531,18 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
       updateWhaleSong(elements.whaleSong, whaleDist, 80, rgb);
       if (whaleDist < 10) state.achievements.stats.whaleProximity = true;
 
-      // Station proximity
+      // Station proximity + refueling
       if (elements.station && elements.station.group) {
         const stationDist = shipGroup.position.distanceTo(elements.station.group.position);
-        if (stationDist < 15) state.achievements.stats.stationVisited = true;
+        if (stationDist < 15) {
+          state.achievements.stats.stationVisited = true;
+          if (state.fuel.current < state.fuel.max) {
+            state.fuel.current = Math.min(state.fuel.max, state.fuel.current + state.fuel.rechargeRate * delta);
+            if (!state.fuel._refuelShown) { state.fuel._refuelShown = true; showActionText('REFUELING...', 1500); }
+          }
+        } else {
+          state.fuel._refuelShown = false;
+        }
       }
 
       // Comet storms
@@ -7379,6 +7561,9 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
       checkShipCollisions(elements.asteroids, shipGroup, state, elements, elapsed, rgb);
       updateHealthSystem(state, elements, elapsed, delta, shipGroup, physics);
       updateShieldEnergy(state, elapsed, delta);
+      updateFuelHUD(state);
+      if (!state.health.dead) updateMission(state, delta, elements, shipGroup);
+      updateMissionHUD(state);
 
       // Death replay (runs during death)
       if (state.replay.playing) {

@@ -162,7 +162,7 @@ describe('scene.js transition resilience', () => {
     const fnStart = scene.indexOf('function beginTransformation');
     assert.ok(fnStart !== -1, 'beginTransformation function not found');
 
-    const fnBody = scene.slice(fnStart, fnStart + 1200);
+    const fnBody = scene.slice(fnStart, fnStart + 1800);
     const appendIdx = fnBody.indexOf('document.body.appendChild');
     const hideIdx = fnBody.indexOf("el.style.display = 'none'");
 
@@ -2127,5 +2127,117 @@ describe('E3: Screenshot sharing', () => {
   it('SHUTTERBUG achievement exists', () => {
     assert.match(scene, /SHUTTERBUG/);
     assert.match(scene, /screenshotTaken/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round 9 — C2: Loading Screen
+// ---------------------------------------------------------------------------
+
+describe('C2: Loading screen', () => {
+  it('loading-screen div in HTML', () => {
+    assert.match(html, /id=["']loading-screen["']/);
+  });
+
+  it('loading-dots with animation in HTML', () => {
+    assert.match(html, /id=["']loading-dots["']/);
+    assert.match(html, /loadingPulse/);
+  });
+
+  it('loading screen shown and hidden in scene.js', () => {
+    assert.match(scene, /loading-screen/);
+    assert.match(scene, /display = 'flex'/);
+    assert.match(scene, /opacity = '0'/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round 9 — C1: Pause Menu
+// ---------------------------------------------------------------------------
+
+describe('C1: Pause menu', () => {
+  it('pause-menu and buttons in HTML', () => {
+    assert.match(html, /id=["']pause-menu["']/);
+    assert.match(html, /id=["']pause-resume["']/);
+    assert.match(html, /id=["']pause-controls["']/);
+    assert.match(html, /id=["']pause-quit["']/);
+  });
+
+  it('paused state in scene.js', () => {
+    assert.match(scene, /paused:\s*false/);
+  });
+
+  it('Escape key triggers pause callback', () => {
+    assert.match(scene, /Escape.*_pauseCallback/);
+  });
+
+  it('togglePause function with clock stop/start', () => {
+    assert.match(scene, /function togglePause/);
+    assert.match(scene, /clock\.stop\(\)/);
+    assert.match(scene, /clock\.start\(\)/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round 9 — A1: Fuel System
+// ---------------------------------------------------------------------------
+
+describe('A1: Fuel system', () => {
+  it('fuel-bar-hud in HTML', () => {
+    assert.match(html, /id=["']fuel-bar-hud["']/);
+    assert.match(html, /id=["']fuel-bar-inner["']/);
+  });
+
+  it('fuel state with current, max, consumption', () => {
+    assert.match(scene, /fuel:\s*\{\s*current:\s*100/);
+    assert.match(scene, /consumption:\s*15/);
+  });
+
+  it('boost gated on fuel in updateShipPhysics', () => {
+    assert.match(scene, /function updateShipPhysics\(shipGroup, physics, input, delta, state\)/);
+    assert.match(scene, /fuel\.current > 0/);
+  });
+
+  it('energy pickups restore fuel', () => {
+    assert.match(scene, /pickup\.type === 'energy'/);
+    assert.match(scene, /fuel\.current \+ 20/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round 9 — A2: Mission Objectives
+// ---------------------------------------------------------------------------
+
+describe('A2: Mission objectives', () => {
+  it('MISSION_TYPES constant defined', () => {
+    assert.match(scene, /const MISSION_TYPES\s*=/);
+    assert.match(scene, /hunter/);
+    assert.match(scene, /speed_run/);
+    assert.match(scene, /survivor/);
+    assert.match(scene, /explorer/);
+    assert.match(scene, /whale_finder/);
+  });
+
+  it('mission state with active, cooldown, spawnTimer', () => {
+    assert.match(scene, /mission:\s*\{\s*active:\s*null/);
+    assert.match(scene, /cooldownTime:\s*45/);
+  });
+
+  it('spawnMission and updateMission functions', () => {
+    assert.match(scene, /function spawnMission/);
+    assert.match(scene, /function updateMission/);
+    assert.match(scene, /function updateMissionHUD/);
+  });
+
+  it('MISSION MASTER achievement', () => {
+    assert.match(scene, /MISSION MASTER/);
+    assert.match(scene, /missionsCompleted/);
+  });
+
+  it('mission-hud in HTML', () => {
+    assert.match(html, /id=["']mission-hud["']/);
+    assert.match(html, /id=["']mission-name["']/);
+    assert.match(html, /id=["']mission-progress-bar-inner["']/);
+    assert.match(html, /id=["']mission-timer["']/);
   });
 });
