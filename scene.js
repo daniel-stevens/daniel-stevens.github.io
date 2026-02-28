@@ -259,6 +259,32 @@ const CATEGORY_COLORS = {
   'Health & Wellness': '#c084fc',
 };
 
+const PROJECTS = [
+  { name: 'daniel-stevens.github.io', desc: 'Personal website & 3D flight sim', lang: 'JavaScript', category: 'original' },
+  { name: 'SnippetsArchive', desc: 'Essential code snippets', lang: 'JavaScript', category: 'original' },
+  { name: 'EPH-Zoho-Catalyst-NewsApp', desc: 'News app project', lang: 'JavaScript', category: 'original' },
+  { name: 'fromthetransistor', desc: 'Transistor to Web Browser course', lang: null, category: 'fork' },
+  { name: 'graham-essays', desc: 'Paul Graham essays collection', lang: null, category: 'fork' },
+  { name: 'teenygrad', desc: 'If tinygrad wasn\'t small enough', lang: null, category: 'fork' },
+  { name: 'react-crypto-dashboard', desc: 'Real-time crypto dashboard', lang: 'TypeScript', category: 'fork' },
+  { name: 'SpoofDPI', desc: 'Anti-censorship tool in Go', lang: null, category: 'fork' },
+  { name: 'movies-for-hackers', desc: 'Movies every hacker must watch', lang: null, category: 'fork' },
+  { name: 'awesome-remote-job', desc: 'Curated remote job resources', lang: null, category: 'fork' },
+  { name: 'dont-get-zohod', desc: 'ZOHO tips & tricks', lang: null, category: 'fork' },
+  { name: 'malware-gems', desc: 'Malware analysis resources', lang: null, category: 'fork' },
+  { name: 'models', desc: 'Stock market models', lang: null, category: 'fork' },
+  { name: 'logu', desc: 'Pattern extraction from logs', lang: null, category: 'fork' },
+  { name: 'Obsidian_Templates', desc: 'Obsidian note templates', lang: null, category: 'fork' },
+  { name: 'g-helper', desc: 'Lightweight Armoury Crate alt', lang: null, category: 'fork' },
+  { name: 'cmc-csci046', desc: 'Data Structures & Algorithms', lang: null, category: 'fork' },
+  { name: 'lab-goodreads2', desc: 'Goodreads project', lang: null, category: 'fork' },
+];
+
+const PROJECT_COLORS = {
+  'original': '#00ff88',
+  'fork': '#4d96ff',
+};
+
 const ACHIEVEMENTS = [
   { id: 'first_blood', name: 'FIRST BLOOD', desc: 'Destroy your first asteroid', check: s => s.kills >= 1 },
   { id: 'speed_demon', name: 'SPEED DEMON', desc: 'Reach maximum speed', check: s => s.maxSpeedReached >= 38 },
@@ -846,6 +872,7 @@ function initThreeScene(canvas) {
   const stars = createStarfield(scene, preset.stars);
   const ambient = createAmbientParticles(scene, preset.ambient);
   const bookGroup = createFloatingBooks(scene);
+  const projectGroup = createFloatingProjects(scene);
 
   // Ship group
   const shipGroup = new THREE.Group();
@@ -894,7 +921,7 @@ function initThreeScene(canvas) {
 
   const elements = {
     stars, ambient, titleMesh: null, tagMeshes: [], linkMeshes: [],
-    bookGroup, thruster, engineGlowL, engineGlowR,
+    bookGroup, projectGroup, thruster, engineGlowL, engineGlowR,
     speedLines, boostFlash, rainbowTrail, minimapCtx, flipBurst,
     asteroids, nebulae, shield, contrailL, contrailR, warpTunnel,
     shockwaves, missiles, explosions, sound, lightning, blackHole, drone,
@@ -1280,6 +1307,7 @@ function createInteractiveLinks(font, camera, canvas) {
   const links = [
     { text: '[ github ]', url: 'https://github.com/daniel-stevens', pos: [-4, -2.5, 1] },
     { text: '[ Good Reads ]', url: 'library.html', pos: [4, -2.5, 1] },
+    { text: '[ Projects ]', url: 'projects.html', pos: [0, -4, 1] },
   ];
 
   const clickables = [];
@@ -1652,6 +1680,91 @@ function createFloatingBooks(scene) {
 }
 
 // ---------------------------------------------------------------------------
+// Floating project cards (canvas textures)
+// ---------------------------------------------------------------------------
+
+function createProjectCardTexture(project) {
+  const c = document.createElement('canvas');
+  c.width = 512;
+  c.height = 200;
+  const ctx = c.getContext('2d');
+
+  ctx.fillStyle = 'rgba(8, 12, 24, 0.92)';
+  ctx.fillRect(0, 0, 512, 200);
+
+  const catColor = PROJECT_COLORS[project.category] || '#4d96ff';
+  ctx.strokeStyle = catColor;
+  ctx.lineWidth = 2;
+  ctx.strokeRect(4, 4, 504, 192);
+
+  const label = project.category === 'original' ? 'ORIGINAL' : 'FORK';
+  ctx.fillStyle = catColor;
+  ctx.font = 'bold 13px Helvetica, Arial, sans-serif';
+  const labelW = ctx.measureText(label).width + 16;
+  ctx.fillRect(16, 14, labelW, 22);
+  ctx.fillStyle = '#000';
+  ctx.fillText(label, 24, 30);
+
+  ctx.fillStyle = '#e0e0ff';
+  ctx.font = 'bold 22px Helvetica, Arial, sans-serif';
+  const name = project.name.length > 30 ? project.name.substring(0, 28) + '...' : project.name;
+  ctx.fillText(name, 16, 72);
+
+  if (project.desc) {
+    ctx.fillStyle = '#8888bb';
+    ctx.font = '14px Helvetica, Arial, sans-serif';
+    const desc = project.desc.length > 50 ? project.desc.substring(0, 48) + '...' : project.desc;
+    ctx.fillText(desc, 16, 100);
+  }
+
+  if (project.lang) {
+    ctx.fillStyle = project.category === 'original' ? '#00ff88' : '#6699ff';
+    ctx.font = 'bold 14px Helvetica, Arial, sans-serif';
+    ctx.beginPath();
+    ctx.arc(24, 140, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#aabbcc';
+    ctx.fillText(project.lang, 36, 145);
+  }
+
+  return new THREE.CanvasTexture(c);
+}
+
+function createFloatingProjects(scene) {
+  const group = new THREE.Group();
+
+  PROJECTS.forEach((project) => {
+    const texture = createProjectCardTexture(project);
+    const geo = new THREE.PlaneGeometry(5, 2);
+    const mat = new THREE.MeshBasicMaterial({
+      map: texture,
+      transparent: true,
+      opacity: 0,
+      side: THREE.DoubleSide,
+    });
+
+    const card = new THREE.Mesh(geo, mat);
+
+    const spreadRadius = 200;
+    card.position.set(
+      (Math.random() - 0.5) * spreadRadius,
+      (Math.random() - 0.5) * spreadRadius * 0.5,
+      -Math.random() * spreadRadius
+    );
+
+    card.userData.floatSpeed = 0.3 + Math.random() * 0.4;
+    card.userData.floatAmp = 0.2 + Math.random() * 0.3;
+    card.userData.yBase = card.position.y;
+    card.userData.projectCategory = project.category;
+
+    group.add(card);
+  });
+
+  scene.add(group);
+  return group;
+}
+
+// ---------------------------------------------------------------------------
 // Infinite space wrapping
 // ---------------------------------------------------------------------------
 
@@ -1699,6 +1812,21 @@ function wrapAmbientParticles(ambient, shipPos) {
 
 function wrapBooks(bookGroup, shipPos) {
   bookGroup.children.forEach((card) => {
+    const dist = card.position.distanceTo(shipPos);
+    if (dist > 120) {
+      card.position.set(
+        shipPos.x + (Math.random() - 0.5) * 80,
+        shipPos.y + (Math.random() - 0.5) * 40,
+        shipPos.z - (40 + Math.random() * 60)
+      );
+      card.userData.yBase = card.position.y;
+    }
+    card.lookAt(shipPos);
+  });
+}
+
+function wrapProjects(projectGroup, shipPos) {
+  projectGroup.children.forEach((card) => {
     const dist = card.position.distanceTo(shipPos);
     if (dist > 120) {
       card.position.set(
@@ -3458,7 +3586,7 @@ function initMinimap() {
   return canvas.getContext('2d');
 }
 
-function updateMinimap(ctx, shipGroup, bookGroup, asteroids, nebulae, blackHole, whale, comets, elapsed, wormhole, state) {
+function updateMinimap(ctx, shipGroup, bookGroup, projectGroup, asteroids, nebulae, blackHole, whale, comets, elapsed, wormhole, state) {
   const w = ctx.canvas.width;
   const h = ctx.canvas.height;
   const cx = w / 2;
@@ -3571,6 +3699,44 @@ function updateMinimap(ctx, shipGroup, bookGroup, asteroids, nebulae, blackHole,
     ctx.beginPath();
     ctx.arc(sx, sy, 2.5, 0, Math.PI * 2);
     ctx.fill();
+  });
+
+  // Project blips — cyan diamonds
+  projectGroup.children.forEach((card) => {
+    const dx = card.position.x - shipGroup.position.x;
+    const dz = card.position.z - shipGroup.position.z;
+    const dist = Math.sqrt(dx * dx + dz * dz);
+    if (dist > radarRange) return;
+
+    const localX = dx * cosY - dz * sinY;
+    const localZ = dx * sinY + dz * cosY;
+    const sx = cx + localX * scale;
+    const sy = cy - localZ * scale;
+    const screenDist = Math.sqrt((sx - cx) * (sx - cx) + (sy - cy) * (sy - cy));
+    if (screenDist > radius - 2) return;
+
+    const blipAngle = Math.atan2(localX, localZ);
+    let normBlipAngle = blipAngle < 0 ? blipAngle + Math.PI * 2 : blipAngle;
+    let diff = sweepAngle - normBlipAngle;
+    if (diff < 0) diff += Math.PI * 2;
+    const brightness = diff < 0.3 ? 1.0 : Math.max(0.15, 1.0 - diff / (Math.PI * 1.8));
+
+    const isOriginal = card.userData.projectCategory === 'original';
+    const color = isOriginal ? '0, 255, 136' : '77, 150, 255';
+
+    if (brightness > 0.4) {
+      ctx.fillStyle = `rgba(${color}, ${(brightness * 0.25).toFixed(3)})`;
+      ctx.beginPath();
+      ctx.arc(sx, sy, 5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.fillStyle = `rgba(${color}, ${brightness.toFixed(3)})`;
+    ctx.save();
+    ctx.translate(sx, sy);
+    ctx.rotate(Math.PI / 4);
+    ctx.fillRect(-2, -2, 4, 4);
+    ctx.restore();
   });
 
   // Asteroid blips — grey triangles
@@ -5995,10 +6161,13 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
       }
       elements.ambient.mesh.geometry.attributes.position.needsUpdate = true;
 
-      // Book cards fade in
+      // Book + project cards fade in
       if (t > 0.5) {
         const p = clamp01((t - 0.5) / 2.5);
         elements.bookGroup.children.forEach((card) => {
+          card.material.opacity = p * 0.85;
+        });
+        elements.projectGroup.children.forEach((card) => {
           card.material.opacity = p * 0.85;
         });
       }
@@ -6161,6 +6330,7 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
       wrapStarfield(elements.stars, sp);
       wrapAmbientParticles(elements.ambient, sp);
       wrapBooks(elements.bookGroup, sp);
+      wrapProjects(elements.projectGroup, sp);
 
       // Wrap + update asteroids and nebulae
       wrapAsteroids(elements.asteroids, sp);
@@ -6427,7 +6597,7 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
 
       // Minimap (update every 2nd frame for performance)
       if (elements.minimapCtx && ++state.minimapFrame % 2 === 0) {
-        updateMinimap(elements.minimapCtx, shipGroup, elements.bookGroup, elements.asteroids, elements.nebulae, elements.blackHole, elements.whale, elements.comets, elapsed, elements.wormhole, state);
+        updateMinimap(elements.minimapCtx, shipGroup, elements.bookGroup, elements.projectGroup, elements.asteroids, elements.nebulae, elements.blackHole, elements.whale, elements.comets, elapsed, elements.wormhole, state);
       }
 
       // Ghost blips on minimap
@@ -6513,6 +6683,14 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
 
     // Book float
     elements.bookGroup.children.forEach((card) => {
+      const d = card.userData;
+      if (d.yBase !== undefined) {
+        card.position.y = d.yBase + Math.sin(elapsed * d.floatSpeed) * d.floatAmp;
+      }
+    });
+
+    // Project float
+    elements.projectGroup.children.forEach((card) => {
       const d = card.userData;
       if (d.yBase !== undefined) {
         card.position.y = d.yBase + Math.sin(elapsed * d.floatSpeed) * d.floatAmp;
