@@ -335,6 +335,7 @@ const QUALITY_PRESETS = {
     stars: 500, ambient: 150, asteroids: 15, nebulae: 10, debris: 60,
     thruster: 50, speedLines: 25, trails: 120, contrails: 150,
     warpSegments: 16, explosions: 100, wormholeParticles: 80,
+    damageSparks: 20, smokeTrail: 30, nebulaWisps: 0,
     bloom: true, chroma: false, motionBlur: false, lensing: false, crack: false, dimensionShift: false,
     envMap: false, volumetric: false, planets: 2,
     pixelRatio: 0.5, antialias: false,
@@ -343,6 +344,7 @@ const QUALITY_PRESETS = {
     stars: 1500, ambient: 500, asteroids: 25, nebulae: 18, debris: 130,
     thruster: 120, speedLines: 60, trails: 300, contrails: 300,
     warpSegments: 20, explosions: 150, wormholeParticles: 150,
+    damageSparks: 40, smokeTrail: 60, nebulaWisps: 30,
     bloom: true, chroma: true, motionBlur: false, lensing: true, crack: false, dimensionShift: false,
     envMap: true, volumetric: false, planets: 3,
     pixelRatio: 0.75, antialias: false,
@@ -351,6 +353,7 @@ const QUALITY_PRESETS = {
     stars: 3000, ambient: 800, asteroids: 35, nebulae: 25, debris: 200,
     thruster: 200, speedLines: 100, trails: 500, contrails: 400,
     warpSegments: 24, explosions: 200, wormholeParticles: 200,
+    damageSparks: 60, smokeTrail: 100, nebulaWisps: 50,
     bloom: true, chroma: true, motionBlur: true, lensing: true, crack: true, dimensionShift: true,
     envMap: true, volumetric: true, planets: 5,
     pixelRatio: 1.0, antialias: true,
@@ -359,6 +362,7 @@ const QUALITY_PRESETS = {
     stars: 6000, ambient: 1500, asteroids: 60, nebulae: 40, debris: 400,
     thruster: 400, speedLines: 200, trails: 800, contrails: 600,
     warpSegments: 32, explosions: 300, wormholeParticles: 350,
+    damageSparks: 100, smokeTrail: 150, nebulaWisps: 80,
     bloom: true, chroma: true, motionBlur: true, lensing: true, crack: true, dimensionShift: true,
     envMap: true, volumetric: true, planets: 8,
     pixelRatio: 1.5, antialias: true,
@@ -1043,6 +1047,9 @@ function initThreeScene(canvas) {
   engineGlowR.position.set(8, 0, 1);
   shipGroup.add(engineGlowR);
 
+  // Engine flame cones
+  const engineFlames = createEngineFlames(shipGroup);
+
   // Thruster particles (world space — NOT parented to shipGroup)
   const thruster = createThrusterParticles(preset.thruster);
   scene.add(thruster.mesh);
@@ -1066,6 +1073,13 @@ function initThreeScene(canvas) {
   const shockwaves = createShockwavePool(scene);
   const missiles = createMissilePool(scene);
   const explosions = createExplosionPool(scene);
+  const damageSparks = createDamageSparks(scene, preset.damageSparks);
+  const smokeTrail = createSmokeTrail(scene, preset.smokeTrail);
+  const damageFlash = createDamageFlash(camera);
+  const hitMarkers = createHitMarkerPool(scene);
+  const nebulaWisps = createNebulaWisps(scene, preset.nebulaWisps);
+  const nebulaTint = createNebulaTint(camera);
+  const debris = createDebrisPool(scene);
   const sound = createSoundEngine();
   const lightning = createLightningPool(scene);
   const blackHole = createBlackHole(scene);
@@ -1082,10 +1096,10 @@ function initThreeScene(canvas) {
 
   const elements = {
     stars, ambient, titleMesh: null, tagMeshes: [], linkMeshes: [],
-    bookGroup, projectGroup, thruster, engineGlowL, engineGlowR,
+    bookGroup, projectGroup, thruster, engineGlowL, engineGlowR, engineFlames,
     speedLines, boostFlash, rainbowTrail, minimapCtx, flipBurst,
     asteroids, nebulae, planets, station, shield, contrailL, contrailR, warpTunnel,
-    shockwaves, missiles, explosions, sound, lightning, blackHole, drone,
+    shockwaves, missiles, explosions, debris, damageSparks, smokeTrail, damageFlash, hitMarkers, nebulaWisps, nebulaTint, sound, lightning, blackHole, drone,
     whale, whaleSong, comets, empMeshes: null,
     music, wormhole, wormholeSound, planetAmbient, stationBeacon, asteroidAmbient,
     bloomPass: null, chromaPass: null, motionBlurPass: null, lensingPass: null, crackPass: null, dimensionShiftPass: null,
@@ -1594,6 +1608,64 @@ function createInteractiveLinks(font, camera, canvas) {
   });
 
   return clickables;
+}
+
+// ---------------------------------------------------------------------------
+// Engine flame cones
+// ---------------------------------------------------------------------------
+
+function createEngineFlames(shipGroup) {
+  const geo = new THREE.ConeGeometry(0.8, 3.0, 8, 1, true);
+  const makeMat = () => new THREE.MeshBasicMaterial({
+    color: 0x4488ff, transparent: true, opacity: 0.6,
+    blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+  });
+  const left = new THREE.Mesh(geo, makeMat());
+  left.rotation.x = Math.PI / 2;
+  left.position.set(-8, 0, 2.5);
+  shipGroup.add(left);
+  const right = new THREE.Mesh(geo, makeMat());
+  right.rotation.x = Math.PI / 2;
+  right.position.set(8, 0, 2.5);
+  shipGroup.add(right);
+  return { left: { mesh: left, baseLength: 3.0 }, right: { mesh: right, baseLength: 3.0 } };
+}
+
+function updateEngineFlames(flames, physics, input, state, delta, elapsed, rgb) {
+  if (!flames) return;
+  const thrustActive = input.forward || input.boost || physics.speed > physics.baseSpeed * 1.5;
+  const speedRatio = physics.speed / physics.maxSpeed;
+  // Scale length with thrust
+  const targetLength = thrustActive ? (input.boost ? 6.0 : 3.0 + speedRatio * 2.0) : 0.5;
+  const scaleZ = flames.left.mesh.scale.z;
+  const newScaleZ = scaleZ + (targetLength / flames.left.baseLength - scaleZ) * 0.15;
+  // Width pulse
+  const widthPulse = 1.0 + 0.1 * Math.sin(elapsed * 15);
+  flames.left.mesh.scale.set(widthPulse, widthPulse, newScaleZ);
+  flames.right.mesh.scale.set(widthPulse, widthPulse, newScaleZ);
+  // Color shift: blue idle → white boost → orange no fuel
+  let targetColor;
+  if (state.fuel.current <= 0) {
+    targetColor = new THREE.Color(0xff6600);
+  } else if (input.boost) {
+    targetColor = new THREE.Color(0xffffff);
+  } else if (thrustActive) {
+    targetColor = new THREE.Color(0x4488ff);
+  } else {
+    targetColor = new THREE.Color(0x2244aa);
+  }
+  flames.left.mesh.material.color.lerp(targetColor, 0.1);
+  flames.right.mesh.material.color.lerp(targetColor, 0.1);
+  // Opacity
+  const targetOpacity = (thrustActive ? 0.7 : 0.15) * (0.3 + rgb * 0.7);
+  flames.left.mesh.material.opacity += (targetOpacity - flames.left.mesh.material.opacity) * 0.1;
+  flames.right.mesh.material.opacity = flames.left.mesh.material.opacity;
+  // Flicker at low health
+  if (state.health.current / state.health.max < 0.3) {
+    const flicker = 0.5 + 0.5 * Math.random();
+    flames.left.mesh.material.opacity *= flicker;
+    flames.right.mesh.material.opacity *= flicker;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -2872,6 +2944,107 @@ function updateNebulaClouds(nebulae, shipGroup, physics, elapsed, delta) {
 }
 
 // ---------------------------------------------------------------------------
+// Nebula fly-through effects — wisps and tint
+// ---------------------------------------------------------------------------
+
+function createNebulaWisps(scene, count) {
+  if (!count) return null;
+  const positions = new Float32Array(count * 3);
+  const colors = new Float32Array(count * 3);
+  const velocities = new Float32Array(count * 3);
+  const lifetimes = new Float32Array(count);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  const mat = new THREE.PointsMaterial({
+    size: 1.5, vertexColors: true, transparent: true, opacity: 0,
+    blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true,
+  });
+  const mesh = new THREE.Points(geo, mat);
+  scene.add(mesh);
+  return { mesh, positions, colors, velocities, lifetimes, count, head: 0 };
+}
+
+function updateNebulaWisps(wisps, shipGroup, nebulae, physics, delta, elapsed, rgb, camera) {
+  if (!wisps) return;
+  // Find nearest nebula
+  let nearestDist = Infinity;
+  let nearestColor = null;
+  for (const cloud of nebulae.clouds) {
+    const d = cloud.sprites[0].position.distanceTo(shipGroup.position);
+    if (d < nearestDist) { nearestDist = d; nearestColor = cloud.color; }
+  }
+  if (nearestDist > 25 || !nearestColor) {
+    wisps.mesh.material.opacity *= 0.9;
+    if (wisps.mesh.material.opacity < 0.01) wisps.mesh.material.opacity = 0;
+    return;
+  }
+  const intensity = 1 - nearestDist / 25;
+  const spawnCount = Math.floor(intensity * 3);
+  const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(shipGroup.quaternion);
+  for (let s = 0; s < spawnCount; s++) {
+    const i = wisps.head;
+    wisps.head = (wisps.head + 1) % wisps.count;
+    const ahead = 5 + Math.random() * 10;
+    wisps.positions[i * 3] = shipGroup.position.x + fwd.x * ahead + (Math.random() - 0.5) * 8;
+    wisps.positions[i * 3 + 1] = shipGroup.position.y + fwd.y * ahead + (Math.random() - 0.5) * 8;
+    wisps.positions[i * 3 + 2] = shipGroup.position.z + fwd.z * ahead + (Math.random() - 0.5) * 8;
+    const speed = physics.speed * 0.5 + 3;
+    wisps.velocities[i * 3] = -fwd.x * speed + (Math.random() - 0.5) * 2;
+    wisps.velocities[i * 3 + 1] = -fwd.y * speed + (Math.random() - 0.5) * 2;
+    wisps.velocities[i * 3 + 2] = -fwd.z * speed + (Math.random() - 0.5) * 2;
+    wisps.lifetimes[i] = 1.0 + Math.random();
+    wisps.colors[i * 3] = nearestColor.r * (0.8 + Math.random() * 0.2);
+    wisps.colors[i * 3 + 1] = nearestColor.g * (0.8 + Math.random() * 0.2);
+    wisps.colors[i * 3 + 2] = nearestColor.b * (0.8 + Math.random() * 0.2);
+  }
+  for (let i = 0; i < wisps.count; i++) {
+    if (wisps.lifetimes[i] > 0) {
+      wisps.lifetimes[i] -= delta;
+      wisps.positions[i * 3] += wisps.velocities[i * 3] * delta;
+      wisps.positions[i * 3 + 1] += wisps.velocities[i * 3 + 1] * delta;
+      wisps.positions[i * 3 + 2] += wisps.velocities[i * 3 + 2] * delta;
+    } else {
+      wisps.positions[i * 3] = 0; wisps.positions[i * 3 + 1] = 0; wisps.positions[i * 3 + 2] = 0;
+    }
+  }
+  wisps.mesh.geometry.attributes.position.needsUpdate = true;
+  wisps.mesh.geometry.attributes.color.needsUpdate = true;
+  wisps.mesh.material.opacity = intensity * 0.6 * rgb;
+}
+
+function createNebulaTint(camera) {
+  const geo = new THREE.PlaneGeometry(2, 2);
+  const mat = new THREE.MeshBasicMaterial({
+    color: 0x000000, transparent: true, opacity: 0, depthTest: false, depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.renderOrder = 998;
+  camera.add(mesh);
+  mesh.position.set(0, 0, -0.1);
+  return { mesh, targetColor: new THREE.Color(), targetOpacity: 0 };
+}
+
+function updateNebulaTint(tint, nebulae, shipGroup, delta, rgb) {
+  if (!tint) return;
+  let nearestDist = Infinity;
+  let nearestColor = null;
+  for (const cloud of nebulae.clouds) {
+    const d = cloud.sprites[0].position.distanceTo(shipGroup.position);
+    if (d < nearestDist) { nearestDist = d; nearestColor = cloud.color; }
+  }
+  if (nearestDist < 25 && nearestColor) {
+    tint.targetColor.copy(nearestColor);
+    tint.targetOpacity = (1 - nearestDist / 25) * 0.15 * rgb;
+  } else {
+    tint.targetOpacity = 0;
+  }
+  tint.mesh.material.opacity += (tint.targetOpacity - tint.mesh.material.opacity) * 0.05;
+  tint.mesh.material.color.lerp(tint.targetColor, 0.1);
+}
+
+// ---------------------------------------------------------------------------
 // Ship shield / aura
 // ---------------------------------------------------------------------------
 
@@ -3436,6 +3609,114 @@ function updateLightningArcs(pool, delta, rgb) {
 }
 
 // ---------------------------------------------------------------------------
+// Directional damage flash
+// ---------------------------------------------------------------------------
+
+function createDamageFlash(camera) {
+  const hBar = new THREE.PlaneGeometry(2, 0.15);
+  const vBar = new THREE.PlaneGeometry(0.15, 2);
+  const makeMat = () => new THREE.MeshBasicMaterial({
+    color: 0xff3333, transparent: true, opacity: 0, depthTest: false, depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+  const planes = {};
+  const defs = { top: [hBar, 0, 0.85], bottom: [hBar, 0, -0.85], left: [vBar, -0.85, 0], right: [vBar, 0.85, 0] };
+  for (const [key, [geo, x, y]] of Object.entries(defs)) {
+    const m = new THREE.Mesh(geo, makeMat());
+    m.renderOrder = 998;
+    m.position.set(x, y, -0.1);
+    camera.add(m);
+    planes[key] = m;
+  }
+  return { planes, active: false, timer: 0 };
+}
+
+function triggerDamageFlash(flash, shipGroup, sourcePos, camera) {
+  if (!flash) return;
+  flash.active = true;
+  flash.timer = 0;
+  // Project source to screen space
+  const ndc = sourcePos.clone().project(camera);
+  const dx = ndc.x;
+  const dy = ndc.y;
+  // Reset all
+  Object.values(flash.planes).forEach(p => { p.material.opacity = 0; });
+  if (dx > 0.2) flash.planes.right.material.opacity = 0.6;
+  if (dx < -0.2) flash.planes.left.material.opacity = 0.6;
+  if (dy > 0.2) flash.planes.top.material.opacity = 0.6;
+  if (dy < -0.2) flash.planes.bottom.material.opacity = 0.6;
+  if (Math.abs(dx) < 0.2 && Math.abs(dy) < 0.2) {
+    Object.values(flash.planes).forEach(p => { p.material.opacity = 0.3; });
+  }
+}
+
+function updateDamageFlash(flash, delta) {
+  if (!flash || !flash.active) return;
+  flash.timer += delta;
+  Object.values(flash.planes).forEach(p => { p.material.opacity *= 0.85; });
+  if (flash.timer > 0.4) {
+    flash.active = false;
+    Object.values(flash.planes).forEach(p => { p.material.opacity = 0; });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Hit markers — expanding rings at impact
+// ---------------------------------------------------------------------------
+
+function createHitMarkerPool(scene) {
+  const meshes = [];
+  const states = [];
+  for (let i = 0; i < 6; i++) {
+    const geo = new THREE.TorusGeometry(0.5, 0.05, 4, 16);
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0x00ff88, transparent: true, opacity: 0,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.visible = false;
+    scene.add(mesh);
+    meshes.push(mesh);
+    states.push({ active: false, startTime: 0 });
+  }
+  return { meshes, states };
+}
+
+function triggerHitMarker(pool, position, elapsed) {
+  if (!pool) return;
+  for (let i = 0; i < pool.states.length; i++) {
+    if (!pool.states[i].active) {
+      pool.states[i].active = true;
+      pool.states[i].startTime = elapsed;
+      pool.meshes[i].visible = true;
+      pool.meshes[i].position.copy(position);
+      pool.meshes[i].scale.setScalar(1);
+      pool.meshes[i].material.opacity = 0.8;
+      break;
+    }
+  }
+}
+
+function updateHitMarkers(pool, elapsed, rgb, camera) {
+  if (!pool) return;
+  for (let i = 0; i < pool.states.length; i++) {
+    const s = pool.states[i];
+    if (!s.active) continue;
+    const t = (elapsed - s.startTime) / 0.5;
+    if (t >= 1) {
+      s.active = false;
+      pool.meshes[i].visible = false;
+      pool.meshes[i].material.opacity = 0;
+    } else {
+      const scale = 1 + t * 4;
+      pool.meshes[i].scale.setScalar(scale);
+      pool.meshes[i].material.opacity = 0.8 * (1 - t) * rgb;
+      pool.meshes[i].lookAt(camera.position);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Sonic boom shockwave
 // ---------------------------------------------------------------------------
 
@@ -3604,6 +3885,7 @@ function updateMissiles(pool, asteroids, shipGroup, elapsed, delta, shockwaves, 
           hit = true;
           triggerExplosion(explosions, am.position.clone(), rgb);
           triggerShockwave(shockwaves, am.position.clone(), elapsed);
+          if (state) triggerHitMarker(elements.hitMarkers, am.position.clone(), elapsed);
           // Respawn asteroid elsewhere
           const theta = Math.random() * Math.PI * 2;
           const phi = Math.acos(2 * Math.random() - 1);
@@ -3631,6 +3913,7 @@ function updateMissiles(pool, asteroids, shipGroup, elapsed, delta, shockwaves, 
           hit = true;
           triggerExplosion(explosions, c.position.clone(), rgb);
           triggerShockwave(shockwaves, c.position.clone(), elapsed);
+          if (state) triggerHitMarker(elements.hitMarkers, c.position.clone(), elapsed);
           c.active = false; c.mesh.visible = false; c.mesh.material.opacity = 0;
           c.trail.positions.fill(0); c.trail.mesh.geometry.attributes.position.needsUpdate = true;
           showActionText('COMET DESTROYED!');
@@ -3648,6 +3931,7 @@ function updateMissiles(pool, asteroids, shipGroup, elapsed, delta, shockwaves, 
         if (segWorld.distanceTo(s.position) < 3) {
           hit = true;
           damageBossSegment(state, elements, seg, 25, scene, elapsed, rgb);
+          triggerHitMarker(elements.hitMarkers, segWorld.clone(), elapsed);
           break;
         }
       }
@@ -3664,6 +3948,84 @@ function updateMissiles(pool, asteroids, shipGroup, elapsed, delta, shockwaves, 
     }
   }
   return kills;
+}
+
+// ---------------------------------------------------------------------------
+// Death debris system
+// ---------------------------------------------------------------------------
+
+function createDebrisPool(scene) {
+  const meshes = [];
+  const states = [];
+  for (let i = 0; i < 12; i++) {
+    const sx = 0.3 + Math.random() * 0.5;
+    const sy = 0.1 + Math.random() * 0.3;
+    const sz = 0.1 + Math.random() * 0.3;
+    const geo = new THREE.BoxGeometry(sx, sy, sz);
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0x445566, metalness: 0.7, roughness: 0.4,
+      transparent: true, opacity: 1,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.visible = false;
+    scene.add(mesh);
+    meshes.push(mesh);
+    states.push({
+      active: false,
+      velocity: new THREE.Vector3(),
+      angularVel: new THREE.Vector3(),
+      lifetime: 0,
+    });
+  }
+  return { meshes, states };
+}
+
+function triggerDebris(pool, position, count) {
+  if (!pool) return;
+  let spawned = 0;
+  for (let i = 0; i < pool.states.length && spawned < count; i++) {
+    if (!pool.states[i].active) {
+      const s = pool.states[i];
+      s.active = true;
+      s.lifetime = 2.0 + Math.random();
+      pool.meshes[i].position.copy(position);
+      pool.meshes[i].visible = true;
+      pool.meshes[i].material.opacity = 1;
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(2 * Math.random() - 1);
+      const speed = 10 + Math.random() * 15;
+      s.velocity.set(
+        speed * Math.sin(phi) * Math.cos(theta),
+        speed * Math.sin(phi) * Math.sin(theta),
+        speed * Math.cos(phi)
+      );
+      s.angularVel.set(
+        (2 + Math.random() * 6) * (Math.random() < 0.5 ? -1 : 1),
+        (2 + Math.random() * 6) * (Math.random() < 0.5 ? -1 : 1),
+        (2 + Math.random() * 6) * (Math.random() < 0.5 ? -1 : 1)
+      );
+      spawned++;
+    }
+  }
+}
+
+function updateDebris(pool, delta) {
+  if (!pool) return;
+  for (let i = 0; i < pool.states.length; i++) {
+    const s = pool.states[i];
+    if (!s.active) continue;
+    s.lifetime -= delta;
+    pool.meshes[i].position.addScaledVector(s.velocity, delta);
+    s.velocity.multiplyScalar(0.98);
+    pool.meshes[i].rotation.x += s.angularVel.x * delta;
+    pool.meshes[i].rotation.y += s.angularVel.y * delta;
+    pool.meshes[i].rotation.z += s.angularVel.z * delta;
+    pool.meshes[i].material.opacity = Math.min(1, s.lifetime);
+    if (s.lifetime <= 0) {
+      s.active = false;
+      pool.meshes[i].visible = false;
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -3835,6 +4197,158 @@ function updateFlip(state, shipGroup, camera, elements, elapsed) {
 }
 
 // ---------------------------------------------------------------------------
+// Ship damage visuals — sparks, smoke, material shift, engine flicker
+// ---------------------------------------------------------------------------
+
+function createDamageSparks(scene, count) {
+  count = count || 40;
+  const positions = new Float32Array(count * 3);
+  const velocities = new Float32Array(count * 3);
+  const lifetimes = new Float32Array(count);
+  const colors = new Float32Array(count * 3);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  const mat = new THREE.PointsMaterial({
+    size: 0.4, vertexColors: true, transparent: true, opacity: 0,
+    blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true,
+  });
+  const mesh = new THREE.Points(geo, mat);
+  scene.add(mesh);
+  return { mesh, positions, velocities, lifetimes, colors, count, head: 0 };
+}
+
+function updateDamageSparks(sparks, shipGroup, state, delta, rgb) {
+  if (!sparks) return;
+  const healthRatio = state.health.current / state.health.max;
+  if (healthRatio >= 0.7 || state.health.dead) {
+    sparks.mesh.material.opacity = 0;
+    return;
+  }
+  const damage = 1 - healthRatio;
+  // Spawn new sparks
+  const spawnChance = damage * 2;
+  if (Math.random() < spawnChance) {
+    const i = sparks.head;
+    sparks.head = (sparks.head + 1) % sparks.count;
+    const ox = (Math.random() - 0.5) * 16;
+    const oy = (Math.random() - 0.5) * 2;
+    const oz = (Math.random() - 0.5) * 2;
+    const worldPos = new THREE.Vector3(ox, oy, oz).applyQuaternion(shipGroup.quaternion).add(shipGroup.position);
+    sparks.positions[i * 3] = worldPos.x;
+    sparks.positions[i * 3 + 1] = worldPos.y;
+    sparks.positions[i * 3 + 2] = worldPos.z;
+    const speed = 3 + Math.random() * 5;
+    sparks.velocities[i * 3] = (Math.random() - 0.5) * speed;
+    sparks.velocities[i * 3 + 1] = (Math.random() - 0.5) * speed;
+    sparks.velocities[i * 3 + 2] = (Math.random() - 0.5) * speed;
+    sparks.lifetimes[i] = 0.3 + Math.random() * 0.3;
+    sparks.colors[i * 3] = 1.0;
+    sparks.colors[i * 3 + 1] = healthRatio > 0.3 ? 0.5 + Math.random() * 0.5 : 0.2;
+    sparks.colors[i * 3 + 2] = 0.1;
+  }
+  // Age sparks
+  for (let i = 0; i < sparks.count; i++) {
+    if (sparks.lifetimes[i] > 0) {
+      sparks.lifetimes[i] -= delta;
+      sparks.positions[i * 3] += sparks.velocities[i * 3] * delta;
+      sparks.positions[i * 3 + 1] += sparks.velocities[i * 3 + 1] * delta;
+      sparks.positions[i * 3 + 2] += sparks.velocities[i * 3 + 2] * delta;
+    } else {
+      sparks.positions[i * 3] = 0; sparks.positions[i * 3 + 1] = 0; sparks.positions[i * 3 + 2] = 0;
+    }
+  }
+  sparks.mesh.geometry.attributes.position.needsUpdate = true;
+  sparks.mesh.geometry.attributes.color.needsUpdate = true;
+  sparks.mesh.material.opacity = Math.min(0.8, damage) * rgb;
+}
+
+function createSmokeTrail(scene, count) {
+  count = count || 60;
+  const positions = new Float32Array(count * 3);
+  const colors = new Float32Array(count * 3);
+  const ages = new Float32Array(count);
+  const velocities = new Float32Array(count * 3);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  const mat = new THREE.PointsMaterial({
+    size: 2.0, vertexColors: true, transparent: true, opacity: 0,
+    depthWrite: false, sizeAttenuation: true,
+  });
+  const mesh = new THREE.Points(geo, mat);
+  scene.add(mesh);
+  return { mesh, positions, colors, ages, velocities, count, head: 0 };
+}
+
+function updateSmokeTrail(smoke, shipGroup, state, physics, delta, rgb) {
+  if (!smoke) return;
+  const healthRatio = state.health.current / state.health.max;
+  if (healthRatio >= 0.5 || state.health.dead) {
+    smoke.mesh.material.opacity = 0;
+    return;
+  }
+  const damage = 1 - healthRatio;
+  // Spawn smoke
+  const spawnCount = Math.floor(damage * 3);
+  for (let s = 0; s < spawnCount; s++) {
+    const i = smoke.head;
+    smoke.head = (smoke.head + 1) % smoke.count;
+    const ox = (Math.random() - 0.5) * 4;
+    const oy = (Math.random() - 0.5) * 2;
+    const worldPos = new THREE.Vector3(ox, oy, 1).applyQuaternion(shipGroup.quaternion).add(shipGroup.position);
+    smoke.positions[i * 3] = worldPos.x;
+    smoke.positions[i * 3 + 1] = worldPos.y;
+    smoke.positions[i * 3 + 2] = worldPos.z;
+    smoke.velocities[i * 3] = (Math.random() - 0.5) * 1;
+    smoke.velocities[i * 3 + 1] = Math.random() * 2;
+    smoke.velocities[i * 3 + 2] = (Math.random() - 0.5) * 1;
+    smoke.ages[i] = 0;
+    smoke.colors[i * 3] = 0.3; smoke.colors[i * 3 + 1] = 0.3; smoke.colors[i * 3 + 2] = 0.3;
+  }
+  // Age smoke
+  for (let i = 0; i < smoke.count; i++) {
+    smoke.ages[i] += delta;
+    if (smoke.ages[i] < 2.0) {
+      smoke.positions[i * 3] += smoke.velocities[i * 3] * delta;
+      smoke.positions[i * 3 + 1] += smoke.velocities[i * 3 + 1] * delta;
+      smoke.positions[i * 3 + 2] += smoke.velocities[i * 3 + 2] * delta;
+      const fade = 1 - smoke.ages[i] / 2.0;
+      smoke.colors[i * 3] = 0.3 * fade;
+      smoke.colors[i * 3 + 1] = 0.3 * fade;
+      smoke.colors[i * 3 + 2] = 0.3 * fade;
+    } else {
+      smoke.positions[i * 3] = 0; smoke.positions[i * 3 + 1] = 0; smoke.positions[i * 3 + 2] = 0;
+    }
+  }
+  smoke.mesh.geometry.attributes.position.needsUpdate = true;
+  smoke.mesh.geometry.attributes.color.needsUpdate = true;
+  smoke.mesh.material.opacity = Math.min(0.5, damage * 0.5) * rgb;
+}
+
+function updateDamageVisuals(state, elements, shipGroup, delta, elapsed, rgb) {
+  const healthRatio = state.health.current / state.health.max;
+  // Engine flicker at low health
+  if (healthRatio < 0.3 && !state.health.dead) {
+    const flicker = 0.5 + 0.5 * Math.random();
+    elements.engineGlowL.intensity *= flicker;
+    elements.engineGlowR.intensity *= flicker;
+  }
+  // Material color shift — darken and redden
+  if (elements.titleMesh && healthRatio < 0.7 && !state.health.dead) {
+    const damage = 1 - healthRatio;
+    const hsl = {};
+    elements.titleMesh.material.color.getHSL(hsl);
+    const targetHue = hsl.h * (1 - damage * 0.5);
+    const targetLightness = hsl.l * (0.5 + healthRatio * 0.5);
+    elements.titleMesh.material.color.setHSL(targetHue, hsl.s, targetLightness);
+    elements.titleMesh.material.emissiveIntensity = 0.5 + damage * 0.5;
+  }
+  updateDamageSparks(elements.damageSparks, shipGroup, state, delta, rgb);
+  updateSmokeTrail(elements.smokeTrail, shipGroup, state, null, delta, rgb);
+}
+
+// ---------------------------------------------------------------------------
 // Flip burst particles
 // ---------------------------------------------------------------------------
 
@@ -3943,6 +4457,7 @@ function checkShipCollisions(asteroids, shipGroup, state, elements, elapsed, rgb
       triggerBoostFlash(elements.boostFlash);
       triggerDamageSound(elements.sound);
       state.explosionShake = 0.5;
+      triggerDamageFlash(elements.damageFlash, shipGroup, m.position, camera);
       showActionText('HULL DAMAGE!');
       // Respawn asteroid
       const theta = Math.random() * Math.PI * 2;
@@ -4043,20 +4558,31 @@ function showLetterbox(show) {
 
 function triggerShipDeath(state, elements, shipGroup, elapsed) {
   state.health.dead = true;
-  state.health.respawnTimer = 4.0;
-  triggerExplosion(elements.explosions, shipGroup.position.clone(), 1.0);
+  state.health.respawnTimer = 5.0;
+  const deathPos = shipGroup.position.clone();
+  // First explosion (immediate)
+  triggerExplosion(elements.explosions, deathPos.clone(), 1.0);
   triggerExplosionSound(elements.sound);
-  triggerShockwave(elements.shockwaves, shipGroup.position.clone(), elapsed);
+  triggerShockwave(elements.shockwaves, deathPos.clone(), elapsed);
+  // Debris burst
+  triggerDebris(elements.debris, deathPos, 8);
+  // Death flash
+  triggerBoostFlash(elements.boostFlash);
+  // Staggered explosion sequence
+  state.health.deathSequence = { timer: 0, phase: 0, position: deathPos, elapsed: elapsed };
+  // Death time dilation (slow-mo)
+  state.health.deathTimeScale = 0.3;
   if (state.score.current >= state.score.highScore && state.score.current > 0) {
     saveHighScore(state.score.current);
     showActionText('NEW HIGH SCORE: ' + state.score.current);
   } else {
     showActionText('DESTROYED! SCORE: ' + state.score.current);
   }
-  state.explosionShake = 2.0;
+  state.explosionShake = 3.0;
   if (elements.titleMesh) elements.titleMesh.visible = false;
   elements.tagMeshes.forEach(m => { m.visible = false; });
   elements.linkMeshes.forEach(m => { m.visible = false; });
+  if (elements.engineFlames) { elements.engineFlames.left.mesh.visible = false; elements.engineFlames.right.mesh.visible = false; }
   startDeathReplay(state, shipGroup);
 }
 
@@ -4071,10 +4597,13 @@ function respawnShip(state, elements, shipGroup, physics) {
   if (elements.titleMesh) elements.titleMesh.visible = true;
   elements.tagMeshes.forEach(m => { m.visible = true; });
   elements.linkMeshes.forEach(m => { m.visible = true; });
+  if (elements.engineFlames) { elements.engineFlames.left.mesh.visible = true; elements.engineFlames.right.mesh.visible = true; }
   state.score.current = 0;
   state.score.multiplier = 1.0;
   state.fuel.current = state.fuel.max;
   state.fuel.emptyShown = false;
+  state.health.deathSequence = null;
+  state.health.deathTimeScale = 1.0;
   endDeathReplay(state);
   showActionText('RESPAWNED!');
 }
@@ -4107,6 +4636,35 @@ function updateHealthSystem(state, elements, elapsed, delta, shipGroup, physics)
     if (pct > 60) bar.style.background = 'linear-gradient(90deg, #00ff66, #00ff88)';
     else if (pct > 30) bar.style.background = 'linear-gradient(90deg, #ffaa00, #ffcc44)';
     else bar.style.background = 'linear-gradient(90deg, #ff3333, #ff6644)';
+  }
+
+  // Staggered death explosions
+  if (state.health.deathSequence) {
+    const seq = state.health.deathSequence;
+    seq.timer += delta;
+    if (seq.phase === 0 && seq.timer > 0.3) {
+      const offset = new THREE.Vector3((Math.random() - 0.5) * 4, (Math.random() - 0.5) * 4, (Math.random() - 0.5) * 4);
+      triggerExplosion(elements.explosions, seq.position.clone().add(offset), 1.0);
+      triggerExplosionSound(elements.sound);
+      state.explosionShake = Math.max(state.explosionShake, 1.5);
+      seq.phase = 1;
+    }
+    if (seq.phase === 1 && seq.timer > 0.6) {
+      const offset = new THREE.Vector3((Math.random() - 0.5) * 6, (Math.random() - 0.5) * 6, (Math.random() - 0.5) * 6);
+      triggerExplosion(elements.explosions, seq.position.clone().add(offset), 1.0);
+      triggerShockwave(elements.shockwaves, seq.position.clone(), seq.elapsed + seq.timer);
+      triggerExplosionSound(elements.sound);
+      state.explosionShake = Math.max(state.explosionShake, 2.0);
+      seq.phase = 2;
+    }
+    if (seq.phase === 2 && seq.timer > 1.0) {
+      state.health.deathSequence = null;
+    }
+  }
+
+  // Death time dilation recovery
+  if (state.health.deathTimeScale !== undefined && state.health.deathTimeScale < 1.0) {
+    state.health.deathTimeScale = Math.min(1.0, state.health.deathTimeScale + delta * 0.5);
   }
 
   // Death respawn
@@ -5598,7 +6156,7 @@ function createCometPool(scene) {
   return comets;
 }
 
-function updateCometStorm(state, comets, shipGroup, asteroids, elements, elapsed, delta, rgb) {
+function updateCometStorm(state, comets, shipGroup, asteroids, elements, elapsed, delta, rgb, camera) {
   const storm = state.cometStorm;
 
   if (!storm.active) {
@@ -5678,6 +6236,7 @@ function updateCometStorm(state, comets, shipGroup, asteroids, elements, elapsed
       triggerExplosion(elements.explosions, c.position.clone(), rgb);
       triggerShockwave(elements.shockwaves, c.position.clone(), elapsed);
       triggerDamageSound(elements.sound);
+      triggerDamageFlash(elements.damageFlash, shipGroup, c.position, camera);
       showActionText('COMET IMPACT!');
       c.active = false; c.mesh.visible = false; c.mesh.material.opacity = 0;
       c.trail.positions.fill(0); c.trail.mesh.geometry.attributes.position.needsUpdate = true;
@@ -6989,7 +7548,7 @@ function updateBoss(state, elements, shipGroup, physics, scene, elapsed, delta, 
     boss.attackTimer = boss.attackInterval;
     fireBossProjectile(boss.entity, shipGroup);
   }
-  updateBossProjectiles(boss.entity.projectiles, shipGroup, state, elements, elapsed, delta, rgb);
+  updateBossProjectiles(boss.entity.projectiles, shipGroup, state, elements, elapsed, delta, rgb, camera);
   updateBossHealthHUD(boss);
   const aliveSegments = boss.segments.filter(s => s.userData.alive).length;
   if (aliveSegments === 0) defeatBoss(state, elements, boss.entity, scene, elapsed, rgb);
@@ -7010,7 +7569,7 @@ function fireBossProjectile(entity, shipGroup) {
   }
 }
 
-function updateBossProjectiles(projectiles, shipGroup, state, elements, elapsed, delta, rgb) {
+function updateBossProjectiles(projectiles, shipGroup, state, elements, elapsed, delta, rgb, camera) {
   projectiles.forEach((proj) => {
     if (!proj.active) return;
     proj.lifetime -= delta;
@@ -7024,6 +7583,7 @@ function updateBossProjectiles(projectiles, shipGroup, state, elements, elapsed,
       state.achievements.stats.timeSinceLastDamage = 0;
       triggerDamageSound(elements.sound);
       state.explosionShake = 0.5;
+      triggerDamageFlash(elements.damageFlash, shipGroup, proj.mesh.position, camera);
       showActionText('BOSS HIT!');
       proj.active = false;
       proj.mesh.visible = false;
@@ -7174,9 +7734,13 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
 
     if (state.paused) { renderFn(); return; }
 
-    const delta = clock.getDelta();
+    let delta = clock.getDelta();
     const elapsed = clock.getElapsedTime();
     state.elapsed = elapsed;
+    // Death time dilation (slow-mo effect)
+    if (state.health.deathTimeScale !== undefined && state.health.deathTimeScale < 1.0) {
+      delta *= state.health.deathTimeScale;
+    }
 
     // ---- Intro sequence (first ~5 seconds) ----
     if (state.introActive) {
@@ -7380,6 +7944,18 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
       elements.engineGlowL.intensity += (targetGlow - elements.engineGlowL.intensity) * 0.1;
       elements.engineGlowR.intensity += (targetGlow - elements.engineGlowR.intensity) * 0.1;
 
+      // Engine flame cones
+      updateEngineFlames(elements.engineFlames, physics, input, state, delta, elapsed, rgb);
+
+      // Heat distortion from engines (additive chroma)
+      if (elements.chromaPass && thrustActive) {
+        const heatChroma = input.boost ? 0.004 * rgb : 0.001 * rgb;
+        elements.chromaPass.uniforms.amount.value += heatChroma;
+      }
+
+      // Ship damage visuals (sparks, smoke, flicker, material shift)
+      updateDamageVisuals(state, elements, shipGroup, delta, elapsed, rgb);
+
       // Lights follow ship
       const sp = shipGroup.position;
       lights.key.position.set(sp.x + 10, sp.y + 10, sp.z + 10);
@@ -7400,6 +7976,21 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
       wrapSpaceStation(elements.station, sp);
       updateSpaceStation(elements.station, elapsed, delta);
       updateNebulaClouds(elements.nebulae, shipGroup, physics, elapsed, delta);
+      updateNebulaWisps(elements.nebulaWisps, shipGroup, elements.nebulae, physics, delta, elapsed, rgb, camera);
+      updateNebulaTint(elements.nebulaTint, elements.nebulae, shipGroup, delta, rgb);
+
+      // Nebula bloom pulse on proximity
+      if (elements.bloomPass) {
+        let nearestNebulaDist = Infinity;
+        for (const cloud of elements.nebulae.clouds) {
+          const d = cloud.sprites[0].position.distanceTo(shipGroup.position);
+          if (d < nearestNebulaDist) nearestNebulaDist = d;
+        }
+        if (nearestNebulaDist < 20) {
+          const nebulaBloom = clamp01(1 - nearestNebulaDist / 20) * 0.3 * rgb;
+          elements.bloomPass.strength += nebulaBloom;
+        }
+      }
 
       // Nebula opacity scaled by RGB
       elements.nebulae.clouds.forEach((c) => {
@@ -7499,6 +8090,9 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
         }
       });
       updateExplosions(elements.explosions, delta);
+      updateDebris(elements.debris, delta);
+      updateDamageFlash(elements.damageFlash, delta);
+      updateHitMarkers(elements.hitMarkers, elapsed, rgb, camera);
 
       // Explosion screen shake
       if (state.explosionShake > 0) {
@@ -7546,7 +8140,7 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
       }
 
       // Comet storms
-      updateCometStorm(state, elements.comets, shipGroup, elements.asteroids, elements, elapsed, delta, rgb);
+      updateCometStorm(state, elements.comets, shipGroup, elements.asteroids, elements, elapsed, delta, rgb, camera);
 
       // EMP blast
       updateEMPBlast(state, input, elements, shipGroup, elements.asteroids, elements.comets, elapsed, delta, rgb, camera);

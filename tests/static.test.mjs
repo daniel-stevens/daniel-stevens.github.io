@@ -2241,3 +2241,232 @@ describe('A2: Mission objectives', () => {
     assert.match(html, /id=["']mission-timer["']/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Round 10: Visual & Polish
+// ---------------------------------------------------------------------------
+
+describe('R10-D: Engine exhaust upgrade', () => {
+  it('createEngineFlames function exists', () => {
+    assert.match(scene, /function createEngineFlames/);
+  });
+
+  it('updateEngineFlames function exists', () => {
+    assert.match(scene, /function updateEngineFlames/);
+  });
+
+  it('engine flames use ConeGeometry', () => {
+    assert.match(scene, /ConeGeometry/);
+  });
+
+  it('engine flames in elements', () => {
+    assert.match(scene, /engineFlames/);
+  });
+
+  it('color shifts based on fuel and boost state', () => {
+    assert.match(scene, /0x4488ff/);
+    assert.match(scene, /0xff6600/);
+  });
+
+  it('heat distortion via chromatic aberration', () => {
+    assert.match(scene, /heatChroma/);
+  });
+
+  it('width pulse animation', () => {
+    assert.match(scene, /widthPulse/);
+  });
+
+  it('flame length scales with thrust', () => {
+    assert.match(scene, /targetLength/);
+  });
+});
+
+describe('R10-A: Ship damage visuals', () => {
+  it('createDamageSparks function exists', () => {
+    assert.match(scene, /function createDamageSparks/);
+  });
+
+  it('updateDamageSparks function exists', () => {
+    assert.match(scene, /function updateDamageSparks/);
+  });
+
+  it('createSmokeTrail function exists', () => {
+    assert.match(scene, /function createSmokeTrail/);
+  });
+
+  it('updateSmokeTrail function exists', () => {
+    assert.match(scene, /function updateSmokeTrail/);
+  });
+
+  it('updateDamageVisuals orchestrator exists', () => {
+    assert.match(scene, /function updateDamageVisuals/);
+  });
+
+  it('damageSparks in elements', () => {
+    assert.match(scene, /damageSparks/);
+  });
+
+  it('smokeTrail in elements', () => {
+    assert.match(scene, /smokeTrail/);
+  });
+
+  it('health ratio drives spark behavior', () => {
+    assert.match(scene, /healthRatio/);
+  });
+
+  it('quality presets include damageSparks', () => {
+    assert.match(scene, /damageSparks:\s*\d+/);
+  });
+
+  it('quality presets include smokeTrail', () => {
+    assert.match(scene, /smokeTrail:\s*\d+/);
+  });
+
+  it('engine flicker at low health', () => {
+    const fnBody = scene.slice(scene.indexOf('function updateDamageVisuals'), scene.indexOf('function updateDamageVisuals') + 500);
+    assert.match(fnBody, /Math\.random/);
+    assert.match(fnBody, /engineGlow/);
+  });
+});
+
+describe('R10-E: Impact flash and hit markers', () => {
+  it('createDamageFlash function exists', () => {
+    assert.match(scene, /function createDamageFlash/);
+  });
+
+  it('triggerDamageFlash function exists', () => {
+    assert.match(scene, /function triggerDamageFlash/);
+  });
+
+  it('updateDamageFlash function exists', () => {
+    assert.match(scene, /function updateDamageFlash/);
+  });
+
+  it('createHitMarkerPool function exists', () => {
+    assert.match(scene, /function createHitMarkerPool/);
+  });
+
+  it('triggerHitMarker function exists', () => {
+    assert.match(scene, /function triggerHitMarker/);
+  });
+
+  it('updateHitMarkers function exists', () => {
+    assert.match(scene, /function updateHitMarkers/);
+  });
+
+  it('damage flash has directional planes', () => {
+    const fnBody = scene.slice(scene.indexOf('function createDamageFlash'), scene.indexOf('function createDamageFlash') + 600);
+    assert.match(fnBody, /top/);
+    assert.match(fnBody, /bottom/);
+    assert.match(fnBody, /left/);
+    assert.match(fnBody, /right/);
+  });
+
+  it('hit markers and damage flash in elements', () => {
+    assert.match(scene, /elements\.hitMarkers/);
+    assert.match(scene, /elements\.damageFlash/);
+  });
+
+  it('triggerDamageFlash called at damage sites', () => {
+    assert.match(scene, /HULL DAMAGE[\s\S]{0,300}triggerDamageFlash|triggerDamageFlash[\s\S]{0,300}HULL DAMAGE/);
+  });
+
+  it('triggerHitMarker called on weapon hits', () => {
+    assert.match(scene, /triggerHitMarker/);
+  });
+
+  it('hit markers use TorusGeometry', () => {
+    const fnBody = scene.slice(scene.indexOf('function createHitMarkerPool'), scene.indexOf('function createHitMarkerPool') + 500);
+    assert.match(fnBody, /TorusGeometry/);
+  });
+});
+
+describe('R10-C: Nebula fly-through effects', () => {
+  it('createNebulaWisps function exists', () => {
+    assert.match(scene, /function createNebulaWisps/);
+  });
+
+  it('updateNebulaWisps function exists', () => {
+    assert.match(scene, /function updateNebulaWisps/);
+  });
+
+  it('createNebulaTint function exists', () => {
+    assert.match(scene, /function createNebulaTint/);
+  });
+
+  it('updateNebulaTint function exists', () => {
+    assert.match(scene, /function updateNebulaTint/);
+  });
+
+  it('nebulaWisps in elements', () => {
+    assert.match(scene, /nebulaWisps/);
+  });
+
+  it('nebulaTint in elements', () => {
+    assert.match(scene, /nebulaTint/);
+  });
+
+  it('quality presets include nebulaWisps', () => {
+    assert.match(scene, /nebulaWisps:\s*\d+/);
+  });
+
+  it('proximity check for nebula effects', () => {
+    assert.match(scene, /nearestNebulaDist/);
+  });
+
+  it('nebula bloom pulse on proximity', () => {
+    assert.match(scene, /nebulaBloom/);
+  });
+});
+
+describe('R10-B: Epic death explosion', () => {
+  it('createDebrisPool function exists', () => {
+    assert.match(scene, /function createDebrisPool/);
+  });
+
+  it('triggerDebris function exists', () => {
+    assert.match(scene, /function triggerDebris/);
+  });
+
+  it('updateDebris function exists', () => {
+    assert.match(scene, /function updateDebris/);
+  });
+
+  it('death sequence has staggered phases', () => {
+    assert.match(scene, /deathSequence/);
+    assert.match(scene, /seq\.phase/);
+  });
+
+  it('death time dilation', () => {
+    assert.match(scene, /deathTimeScale/);
+  });
+
+  it('debris in elements', () => {
+    assert.match(scene, /elements\.debris/);
+  });
+
+  it('respawn clears death sequence and time scale', () => {
+    const fnStart = scene.indexOf('function respawnShip');
+    const fnBody = scene.slice(fnStart, fnStart + 1000);
+    assert.match(fnBody, /deathSequence\s*=\s*null/);
+    assert.match(fnBody, /deathTimeScale\s*=\s*1\.0/);
+  });
+
+  it('death triggers debris burst', () => {
+    const fnStart = scene.indexOf('function triggerShipDeath');
+    const fnBody = scene.slice(fnStart, fnStart + 1000);
+    assert.match(fnBody, /triggerDebris/);
+  });
+
+  it('extended respawn timer', () => {
+    const fnStart = scene.indexOf('function triggerShipDeath');
+    const fnBody = scene.slice(fnStart, fnStart + 200);
+    assert.match(fnBody, /respawnTimer\s*=\s*5/);
+  });
+
+  it('bigger explosion shake on death', () => {
+    const fnStart = scene.indexOf('function triggerShipDeath');
+    const fnBody = scene.slice(fnStart, fnStart + 1000);
+    assert.match(fnBody, /explosionShake\s*=\s*3/);
+  });
+});
