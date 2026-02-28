@@ -602,7 +602,7 @@ function createInputState(canvas) {
       case 'ShiftLeft': case 'ShiftRight': input.chargeJump = true; e.preventDefault(); break;
       case 'KeyE': input.empCharge = true; break;
       case 'Tab': input.tabRequested = true; e.preventDefault(); break;
-      case 'KeyH': input.helpRequested = true; break;
+      case 'KeyC': input.helpRequested = true; break;
     }
   });
 
@@ -5372,6 +5372,8 @@ function showFlightHUD() {
   if (weatherHud) weatherHud.style.display = 'block';
   const playersHud = document.getElementById('players-hud');
   if (playersHud) playersHud.style.display = 'block';
+  const controlsHint = document.getElementById('controls-hint');
+  if (controlsHint) controlsHint.style.display = 'block';
 }
 
 // ---------------------------------------------------------------------------

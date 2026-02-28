@@ -1336,8 +1336,8 @@ describe('Controls toggle overlay', () => {
     assert.match(html, /id=["']controls-overlay["']/);
   });
 
-  it('KeyH handler in input', () => {
-    assert.match(scene, /KeyH/);
+  it('KeyC handler in input', () => {
+    assert.match(scene, /KeyC/);
   });
 
   it('helpRequested in input state', () => {
@@ -1354,8 +1354,12 @@ describe('Controls toggle overlay', () => {
     assert.match(html, /Hyperspace Jump/);
   });
 
-  it('H for help in flight-hud text', () => {
-    assert.match(html, /H for help/);
+  it('C for controls in flight-hud text', () => {
+    assert.match(html, /C for controls/);
+  });
+
+  it('persistent controls-hint button in HTML', () => {
+    assert.match(html, /id=["']controls-hint["']/);
   });
 
   it('controls overlay has z-index', () => {
