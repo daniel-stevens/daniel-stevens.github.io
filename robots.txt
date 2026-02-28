@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://daniel-stevens.github.io/sitemap.xml
+Sitemap: https://danielstevens.org/sitemap.xml
