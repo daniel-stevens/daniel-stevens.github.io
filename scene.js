@@ -290,6 +290,8 @@ const DIMENSION_PALETTES = {
   alternate: ['#00FF66', '#FF00CC', '#FFAA00', '#FF3366', '#00FFAA'],
 };
 
+const KONAMI_SEQUENCE = ['ArrowUp','ArrowUp','ArrowDown','ArrowDown','ArrowLeft','ArrowRight','ArrowLeft','ArrowRight','KeyB','KeyA'];
+
 const ACHIEVEMENTS = [
   { id: 'first_blood', name: 'FIRST BLOOD', desc: 'Destroy your first asteroid', check: s => s.kills >= 1 },
   { id: 'speed_demon', name: 'SPEED DEMON', desc: 'Reach maximum speed', check: s => s.maxSpeedReached >= 38 },
@@ -747,6 +749,7 @@ function createInputState(canvas) {
       case 'Tab': input.tabRequested = true; e.preventDefault(); break;
       case 'KeyC': input.helpRequested = true; break;
     }
+    if (input._konamiCallback) input._konamiCallback(e.code);
   });
 
   window.addEventListener('keyup', (e) => {
@@ -1060,6 +1063,9 @@ function initThreeScene(canvas) {
   const music = createProceduralMusic(sound);
   const wormhole = createWormhole(scene);
   const wormholeSound = createWormholeSound(sound);
+  const planetAmbient = createPlanetAmbient(sound);
+  const stationBeacon = createStationBeacon(sound);
+  const asteroidAmbient = createAsteroidFieldAmbient(sound);
 
   const elements = {
     stars, ambient, titleMesh: null, tagMeshes: [], linkMeshes: [],
@@ -1068,7 +1074,7 @@ function initThreeScene(canvas) {
     asteroids, nebulae, planets, station, shield, contrailL, contrailR, warpTunnel,
     shockwaves, missiles, explosions, sound, lightning, blackHole, drone,
     whale, whaleSong, comets, empMeshes: null,
-    music, wormhole, wormholeSound,
+    music, wormhole, wormholeSound, planetAmbient, stationBeacon, asteroidAmbient,
     bloomPass: null, chromaPass: null, motionBlurPass: null, lensingPass: null, crackPass: null, dimensionShiftPass: null,
   };
 
@@ -1138,6 +1144,24 @@ function initThreeScene(canvas) {
     });
   }
 
+  // Mute / Volume controls
+  const muteState = { muted: false, volume: 1.0 };
+  const muteBtn = document.getElementById('mute-btn');
+  const volumeSlider = document.getElementById('volume-slider');
+  if (muteBtn) {
+    muteBtn.addEventListener('click', () => {
+      muteState.muted = !muteState.muted;
+      muteBtn.textContent = muteState.muted ? 'UNMUTE' : 'MUTE';
+      muteBtn.style.color = muteState.muted ? 'rgba(255,80,80,0.9)' : 'rgba(0,255,136,0.8)';
+      muteBtn.style.borderColor = muteState.muted ? 'rgba(255,80,80,0.4)' : 'rgba(0,255,136,0.3)';
+    });
+  }
+  if (volumeSlider) {
+    volumeSlider.addEventListener('input', () => {
+      muteState.volume = parseInt(volumeSlider.value) / 100;
+    });
+  }
+
   // Animation loop
   const state = {
     introActive: true, introStart: performance.now(), hudShown: false, prevBoost: false, minimapFrame: 0,
@@ -1152,7 +1176,7 @@ function initThreeScene(canvas) {
       dead: false, respawnTimer: 0,
     },
     achievements: {
-      stats: { kills: 0, distanceTraveled: 0, maxSpeedReached: 0, barrelRolls: 0, flips: 0, sonicBooms: 0, maxCombo: 0, timeSinceLastDamage: 0, hyperspaceJumps: 0, cometsDestroyed: 0, empBlasts: 0, maxEMPKills: 0, stormsSurvivedClean: 0, whaleProximity: false, dimensionShifts: 0, maxScore: 0, bossesDefeated: 0, stationVisited: false },
+      stats: { kills: 0, distanceTraveled: 0, maxSpeedReached: 0, barrelRolls: 0, flips: 0, sonicBooms: 0, maxCombo: 0, timeSinceLastDamage: 0, hyperspaceJumps: 0, cometsDestroyed: 0, empBlasts: 0, maxEMPKills: 0, stormsSurvivedClean: 0, whaleProximity: false, dimensionShifts: 0, maxScore: 0, bossesDefeated: 0, stationVisited: false, konamiActivated: false, screenshotTaken: false },
       unlocked: new Set(), popupQueue: [], activePopup: null, popupTimer: 0,
     },
     prevShipPosition: null,
@@ -1203,6 +1227,7 @@ function initThreeScene(canvas) {
       attackTimer: 0, attackInterval: 2.0, projectiles: [],
       defeated: false, spawnCooldown: 0,
     },
+    konami: { progress: 0, unlocked: false },
   };
 
   // Load persisted data
@@ -1215,6 +1240,8 @@ function initThreeScene(canvas) {
     { id: 'weathered', name: 'WEATHERED', desc: 'Experience all 5 weather types', check: s => s.weatheredAll },
     { id: 'aurora_hunter', name: 'AURORA HUNTER', desc: 'Fly within 30 units of aurora', check: s => s.auroraProximity },
     { id: 'ice_breaker', name: 'ICE BREAKER', desc: 'Destroy 10 ice crystals', check: s => (s.iceCrystalsDestroyed || 0) >= 10 },
+    { id: 'konami_master', name: 'CHAOS MASTER', desc: 'Activate Konami code', check: s => s.konamiActivated },
+    { id: 'shutterbug', name: 'SHUTTERBUG', desc: 'Take a screenshot', check: s => s.screenshotTaken },
   );
 
   // Apply engine/shield customization
@@ -1240,13 +1267,26 @@ function initThreeScene(canvas) {
   state.mining.pickupPool = createPickupPool(scene, 15);
 
   // Env map for ship reflections
+  createScorePopupContainer();
+
   elements.envMapData = createSpaceEnvMap(renderer, scene);
   if (elements.titleMesh && elements.envMapData) {
     elements.titleMesh.material.envMap = elements.envMapData.cubeRenderTarget.texture;
     elements.titleMesh.material.envMapIntensity = 0.3;
   }
 
-  startAnimationLoop(renderFn, elements, camera, shipGroup, physics, input, state, lights, rgbState, scene, renderer);
+  // Konami code callback
+  input._konamiCallback = (code) => checkKonamiCode(state, code, elements.sound);
+
+  // Screenshot button
+  const screenshotBtn = document.getElementById('screenshot-btn');
+  if (screenshotBtn) {
+    screenshotBtn.addEventListener('click', () => {
+      takeScreenshot(renderer, state, physics);
+    });
+  }
+
+  startAnimationLoop(renderFn, elements, camera, shipGroup, physics, input, state, lights, rgbState, muteState, scene, renderer);
   setupResize(camera, renderer, composer, bloomPass);
 
   // Font ready — assemble ship
@@ -3759,7 +3799,7 @@ function checkShipCollisions(asteroids, shipGroup, state, elements, elapsed, rgb
         state.shield.lastDrainTime = elapsed;
         elements.shield.rippleTime = elapsed;
         showActionText('SHIELD ABSORBED!');
-        triggerDamageSound(elements.sound);
+        triggerShieldImpactSound(elements.sound);
         // Respawn asteroid away
         const theta = Math.random() * Math.PI * 2;
         const phi = Math.acos(2 * Math.random() - 1);
@@ -4045,12 +4085,43 @@ function saveHighScore(score) {
   try { localStorage.setItem('danielstevens-highscore', String(score)); } catch (e) { /* silent */ }
 }
 
+function createScorePopupContainer() {
+  const container = document.createElement('div');
+  container.id = 'score-popup-container';
+  container.style.cssText = 'position:fixed; top:0; left:0; width:100vw; height:100vh; pointer-events:none; z-index:10000; overflow:hidden;';
+  document.body.appendChild(container);
+  return container;
+}
+
+function showScorePopup(points, multiplier) {
+  const container = document.getElementById('score-popup-container');
+  if (!container) return;
+  const mult = multiplier || 1;
+  const total = Math.floor(points * mult);
+  const el = document.createElement('div');
+  const xBase = window.innerWidth / 2;
+  const x = xBase + (Math.random() - 0.5) * 120;
+  const y = 80 + Math.random() * 30;
+  el.style.cssText = 'position:absolute; font-family:monospace; font-size:18px; font-weight:bold; color:rgba(255,215,0,1); text-shadow:0 0 8px rgba(255,215,0,0.6); left:' + x + 'px; top:' + y + 'px; transform:translateY(0); opacity:1; transition:transform 1.2s ease-out, opacity 1.2s ease-out; pointer-events:none; white-space:nowrap;';
+  el.textContent = '+' + total + (mult > 1 ? ' x' + mult : '');
+  container.appendChild(el);
+  requestAnimationFrame(() => {
+    el.style.transform = 'translateY(-60px)';
+    el.style.opacity = '0';
+  });
+  setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 1300);
+}
+
 function addScore(state, points) {
-  state.score.current += Math.floor(points * state.score.multiplier);
+  const earned = Math.floor(points * state.score.multiplier);
+  state.score.current += earned;
   if (state.score.current > state.score.highScore) {
     state.score.highScore = state.score.current;
   }
   state.achievements.stats.maxScore = Math.max(state.achievements.stats.maxScore, state.score.current);
+  if (points >= 50 && document.getElementById('score-popup-container')) {
+    showScorePopup(points, state.score.multiplier);
+  }
 }
 
 function updateScoreHUD(state) {
@@ -4519,8 +4590,15 @@ function updateEngineSound(sound, physics, rgb, freqMult) {
   sound.engines.gainR.gain.value += (vol - sound.engines.gainR.gain.value) * 0.1;
   sound.engines.oscL.frequency.value = 60 * fm * (1 + speedRatio * 0.5);
   sound.engines.oscR.frequency.value = 90 * fm * (1 + speedRatio * 0.5);
-  // Master gain scales with RGB
-  sound.masterGain.gain.value = 0.1 + rgb * 0.4;
+  // Master gain target scales with RGB (applied by updateMasterVolume)
+  sound.masterGain._rgbTarget = 0.1 + rgb * 0.4;
+}
+
+function updateMasterVolume(sound, muteState) {
+  if (!sound) return;
+  const base = sound.masterGain._rgbTarget !== undefined ? sound.masterGain._rgbTarget : 0.3;
+  const target = muteState.muted ? 0 : base * muteState.volume;
+  sound.masterGain.gain.value += (target - sound.masterGain.gain.value) * 0.1;
 }
 
 function createSpatialPanner(ctx, refDist, maxDist) {
@@ -4828,6 +4906,44 @@ function triggerDamageSound(sound) {
   noise.stop(ctx.currentTime + 0.15);
 }
 
+function triggerShieldImpactSound(sound) {
+  if (!sound || sound.ctx.state !== 'running') return;
+  const ctx = sound.ctx;
+  // Metallic bell partial 1 — 880 Hz fundamental
+  const bell1 = ctx.createOscillator();
+  bell1.type = 'sine';
+  bell1.frequency.setValueAtTime(880, ctx.currentTime);
+  bell1.frequency.exponentialRampToValueAtTime(760, ctx.currentTime + 0.4);
+  const g1 = ctx.createGain();
+  g1.gain.setValueAtTime(0.18, ctx.currentTime);
+  g1.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+  bell1.connect(g1); g1.connect(sound.masterGain);
+  bell1.start(); bell1.stop(ctx.currentTime + 0.5);
+  // Inharmonic overtone — 2340 Hz metallic texture
+  const bell2 = ctx.createOscillator();
+  bell2.type = 'sine';
+  bell2.frequency.value = 2340;
+  const g2 = ctx.createGain();
+  g2.gain.setValueAtTime(0.06, ctx.currentTime);
+  g2.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
+  bell2.connect(g2); g2.connect(sound.masterGain);
+  bell2.start(); bell2.stop(ctx.currentTime + 0.25);
+  // Short noise burst — impact thud
+  const bufLen = Math.floor(ctx.sampleRate * 0.04);
+  const buf = ctx.createBuffer(1, bufLen, ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < bufLen; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / bufLen * 8);
+  const ns = ctx.createBufferSource();
+  ns.buffer = buf;
+  const nf = ctx.createBiquadFilter();
+  nf.type = 'bandpass'; nf.frequency.value = 1800; nf.Q.value = 2;
+  const ng = ctx.createGain();
+  ng.gain.setValueAtTime(0.12, ctx.currentTime);
+  ng.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.06);
+  ns.connect(nf); nf.connect(ng); ng.connect(sound.masterGain);
+  ns.start(); ns.stop(ctx.currentTime + 0.06);
+}
+
 function triggerAchievementSound(sound) {
   if (!sound || sound.ctx.state !== 'running') return;
   const ctx = sound.ctx;
@@ -5008,6 +5124,84 @@ function updateWhaleSong(song, distance, maxRange, rgb) {
   song.gain.gain.value += (vol - song.gain.gain.value) * 0.05;
   song.osc1.frequency.value = 40 + proximity * 5;
   song.osc2.frequency.value = 42 + proximity * 6;
+}
+
+function createPlanetAmbient(sound) {
+  if (!sound || !sound.ctx) return null;
+  const ctx = sound.ctx;
+  const osc1 = ctx.createOscillator(); osc1.type = 'sawtooth'; osc1.frequency.value = 35;
+  const osc2 = ctx.createOscillator(); osc2.type = 'sawtooth'; osc2.frequency.value = 36.5;
+  const gain = ctx.createGain(); gain.gain.value = 0;
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'lowpass'; filter.frequency.value = 120; filter.Q.value = 0.7;
+  osc1.connect(filter); osc2.connect(filter);
+  filter.connect(gain); gain.connect(sound.masterGain);
+  osc1.start(); osc2.start();
+  return { osc1, osc2, gain };
+}
+
+function updatePlanetAmbient(ambient, nearestPlanetDist, maxRange, rgb) {
+  if (!ambient) return;
+  const proximity = clamp01(1 - nearestPlanetDist / maxRange);
+  const targetVol = proximity * proximity * 0.08 * rgb;
+  ambient.gain.gain.value += (targetVol - ambient.gain.gain.value) * 0.03;
+  ambient.osc1.frequency.value = 35 + proximity * 8;
+  ambient.osc2.frequency.value = 36.5 + proximity * 9;
+}
+
+function createStationBeacon(sound) {
+  if (!sound || !sound.ctx) return null;
+  const ctx = sound.ctx;
+  const droneOsc = ctx.createOscillator(); droneOsc.type = 'sine'; droneOsc.frequency.value = 90;
+  const droneGain = ctx.createGain(); droneGain.gain.value = 0;
+  droneOsc.connect(droneGain); droneGain.connect(sound.masterGain);
+  droneOsc.start();
+  return { droneOsc, droneGain, beaconTimer: 0, beaconInterval: 2.0 };
+}
+
+function updateStationBeacon(beacon, distance, maxRange, rgb, delta, sound) {
+  if (!beacon) return;
+  const proximity = clamp01(1 - distance / maxRange);
+  const targetVol = proximity * 0.06 * rgb;
+  beacon.droneGain.gain.value += (targetVol - beacon.droneGain.gain.value) * 0.05;
+  if (proximity <= 0) return;
+  beacon.beaconTimer -= delta;
+  if (beacon.beaconTimer <= 0) {
+    beacon.beaconTimer = beacon.beaconInterval;
+    if (!sound || sound.ctx.state !== 'running') return;
+    const ctx = sound.ctx;
+    const pulse = ctx.createOscillator();
+    pulse.type = 'sine'; pulse.frequency.value = 440;
+    const pGain = ctx.createGain();
+    pGain.gain.setValueAtTime(0.07 * proximity * rgb, ctx.currentTime);
+    pGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+    pulse.connect(pGain); pGain.connect(sound.masterGain);
+    pulse.start(); pulse.stop(ctx.currentTime + 0.15);
+  }
+}
+
+function createAsteroidFieldAmbient(sound) {
+  if (!sound || !sound.ctx) return null;
+  const ctx = sound.ctx;
+  const bufLen = Math.floor(ctx.sampleRate * 2);
+  const buf = ctx.createBuffer(1, bufLen, ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < bufLen; i++) d[i] = Math.random() * 2 - 1;
+  const source = ctx.createBufferSource();
+  source.buffer = buf; source.loop = true;
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'bandpass'; filter.frequency.value = 80; filter.Q.value = 0.5;
+  const gain = ctx.createGain(); gain.gain.value = 0;
+  source.connect(filter); filter.connect(gain); gain.connect(sound.masterGain);
+  source.start();
+  return { source, gain, filter };
+}
+
+function updateAsteroidFieldAmbient(ambient, nearestAsteroidDist, rgb) {
+  if (!ambient) return;
+  const proximity = clamp01(1 - nearestAsteroidDist / 25);
+  const targetVol = proximity * proximity * 0.05 * rgb;
+  ambient.gain.gain.value += (targetVol - ambient.gain.gain.value) * 0.04;
 }
 
 // ---------------------------------------------------------------------------
@@ -5887,8 +6081,8 @@ function triggerDimensionShift(state, elements, shipGroup, elapsed) {
     state.wormhole.gravityMult = 1.0;
   }
 
-  // Trigger wormhole transition sound
-  triggerWormholeSound(elements.sound);
+  // Trigger dimension shift transition sound
+  triggerDimensionShiftSound(elements.sound, entering);
 }
 
 function updateDimensionShift(state, elements, delta, elapsed) {
@@ -6000,6 +6194,43 @@ function triggerWormholeSound(sound) {
   echo.start(ctx.currentTime + 0.1); echo.stop(ctx.currentTime + 1.2);
 }
 
+function triggerDimensionShiftSound(sound, entering) {
+  if (!sound || sound.ctx.state !== 'running') return;
+  const ctx = sound.ctx;
+  // Ethereal pad — 4 stacked triangle oscillators
+  const freqs = entering ? [220, 277, 330, 415] : [415, 330, 277, 220];
+  freqs.forEach((f, i) => {
+    const osc = ctx.createOscillator();
+    osc.type = 'triangle';
+    const t = ctx.currentTime + i * 0.05;
+    osc.frequency.setValueAtTime(f, t);
+    osc.frequency.exponentialRampToValueAtTime(entering ? f * 0.6 : f * 0.3, t + 1.5);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0, t);
+    g.gain.linearRampToValueAtTime(0.06, t + 0.1);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 1.8);
+    osc.connect(g); g.connect(sound.masterGain);
+    osc.start(t); osc.stop(t + 1.8);
+  });
+  // Reality tear — scanning bandpass noise
+  const bufLen = Math.floor(ctx.sampleRate * 0.3);
+  const buf = ctx.createBuffer(1, bufLen, ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < bufLen; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / bufLen);
+  const ns = ctx.createBufferSource();
+  ns.buffer = buf;
+  const nf = ctx.createBiquadFilter();
+  nf.type = 'bandpass';
+  nf.frequency.setValueAtTime(entering ? 200 : 2000, ctx.currentTime);
+  nf.frequency.exponentialRampToValueAtTime(entering ? 2000 : 200, ctx.currentTime + 0.3);
+  nf.Q.value = 3;
+  const ng = ctx.createGain();
+  ng.gain.setValueAtTime(0.15, ctx.currentTime);
+  ng.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+  ns.connect(nf); nf.connect(ng); ng.connect(sound.masterGain);
+  ns.start(); ns.stop(ctx.currentTime + 0.35);
+}
+
 function triggerBassDropSound(sound) {
   if (!sound || sound.ctx.state !== 'running') return;
   const ctx = sound.ctx;
@@ -6028,6 +6259,91 @@ function triggerTriumphantHornSound(sound) {
   filter.connect(gain); gain.connect(sound.masterGain);
   osc1.start(); osc2.start();
   osc1.stop(ctx.currentTime + 0.8); osc2.stop(ctx.currentTime + 0.8);
+}
+
+function checkKonamiCode(state, keyCode, sound) {
+  const expected = KONAMI_SEQUENCE[state.konami.progress];
+  if (keyCode === expected) {
+    state.konami.progress++;
+    if (state.konami.progress >= KONAMI_SEQUENCE.length) {
+      state.konami.progress = 0;
+      if (!state.konami.unlocked) {
+        state.konami.unlocked = true;
+        showActionText('CHAOS MODE ACTIVATED!');
+        triggerKonamiSound(sound);
+        state.achievements.stats.konamiActivated = true;
+      }
+    }
+  } else {
+    state.konami.progress = keyCode === KONAMI_SEQUENCE[0] ? 1 : 0;
+  }
+}
+
+function triggerKonamiSound(sound) {
+  if (!sound || sound.ctx.state !== 'running') return;
+  const ctx = sound.ctx;
+  const notes = [261.6, 329.6, 392.0, 523.3, 659.3];
+  notes.forEach((freq, i) => {
+    const osc = ctx.createOscillator();
+    osc.type = 'square';
+    osc.frequency.value = freq;
+    const g = ctx.createGain();
+    const t = ctx.currentTime + i * 0.1;
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.12, t + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+    osc.connect(g); g.connect(sound.masterGain);
+    osc.start(t); osc.stop(t + 0.25);
+  });
+  const bass = ctx.createOscillator();
+  bass.type = 'sine'; bass.frequency.value = 65;
+  const bg = ctx.createGain();
+  bg.gain.setValueAtTime(0.2, ctx.currentTime + 0.4);
+  bg.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.0);
+  bass.connect(bg); bg.connect(sound.masterGain);
+  bass.start(ctx.currentTime + 0.4); bass.stop(ctx.currentTime + 1.0);
+}
+
+function takeScreenshot(renderer, state, physics) {
+  try {
+    const glCanvas = renderer.domElement;
+    const w = glCanvas.width;
+    const h = glCanvas.height;
+    const out = document.createElement('canvas');
+    out.width = w; out.height = h;
+    const ctx2d = out.getContext('2d');
+    ctx2d.drawImage(glCanvas, 0, 0);
+    // Stats overlay panel
+    const panelW = 320, panelH = 100;
+    const px = 20, py = h - panelH - 20;
+    ctx2d.fillStyle = 'rgba(0,0,0,0.65)';
+    ctx2d.fillRect(px, py, panelW, panelH);
+    ctx2d.strokeStyle = 'rgba(0,255,136,0.4)';
+    ctx2d.lineWidth = 1;
+    ctx2d.strokeRect(px, py, panelW, panelH);
+    ctx2d.font = 'bold 14px monospace';
+    ctx2d.fillStyle = '#00ff88';
+    ctx2d.fillText('danielstevens.org', px + 12, py + 22);
+    ctx2d.fillStyle = 'rgba(255,215,0,0.9)';
+    ctx2d.fillText('SCORE: ' + state.score.current, px + 12, py + 42);
+    ctx2d.fillStyle = 'rgba(255,255,255,0.7)';
+    ctx2d.fillText('HI: ' + state.score.highScore + '  SPEED: ' + Math.round(physics.speed), px + 12, py + 58);
+    const elapsed = state.elapsed || 0;
+    const mins = Math.floor(elapsed / 60);
+    const secs = Math.floor(elapsed % 60);
+    ctx2d.fillText('TIME: ' + mins + ':' + String(secs).padStart(2, '0') + '  KILLS: ' + state.achievements.stats.kills, px + 12, py + 74);
+    ctx2d.fillStyle = 'rgba(0,255,136,0.5)';
+    ctx2d.font = '11px monospace';
+    ctx2d.fillText('Space Flight Simulator', px + 12, py + 90);
+    const link = document.createElement('a');
+    link.download = 'danielstevens-space-' + Date.now() + '.png';
+    link.href = out.toDataURL('image/png');
+    link.click();
+    showActionText('SCREENSHOT SAVED!');
+    state.achievements.stats.screenshotTaken = true;
+  } catch (e) {
+    showActionText('SCREENSHOT FAILED');
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -6689,7 +7005,7 @@ function showFlightHUD() {
 // Main animation loop
 // ---------------------------------------------------------------------------
 
-function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, input, state, lights, rgbState, scene, renderer) {
+function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, input, state, lights, rgbState, muteState, scene, renderer) {
   const clock = new THREE.Clock();
 
   function animate() {
@@ -6697,6 +7013,7 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
 
     const delta = clock.getDelta();
     const elapsed = clock.getElapsedTime();
+    state.elapsed = elapsed;
 
     // ---- Intro sequence (first ~5 seconds) ----
     if (state.introActive) {
@@ -6854,6 +7171,17 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
       // Chromatic aberration — scales with speed and RGB
       if (elements.chromaPass) {
         elements.chromaPass.uniforms.amount.value = (physics.speed / physics.maxSpeed) * 0.008 * rgb;
+      }
+
+      // Konami chaos mode — permanent rainbow trail + chromatic aberration pulse
+      if (state.konami.unlocked) {
+        elements.rainbowTrail.mesh.material.opacity = 0.9;
+        if (elements.chromaPass) {
+          elements.chromaPass.uniforms.amount.value = Math.max(
+            elements.chromaPass.uniforms.amount.value,
+            0.003 + 0.003 * Math.sin(elapsed * 5)
+          );
+        }
       }
 
       // Motion blur — only during boost, scales with RGB
@@ -7092,6 +7420,7 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
 
       // Engine sound update
       updateEngineSound(elements.sound, physics, rgb, state.customization.engineFreqMult);
+      updateMasterVolume(elements.sound, muteState);
 
       // Danger level for music intensity
       let dangerLevel = 0;
@@ -7106,6 +7435,18 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
 
       // Radio chatter
       updateRadioChatter(elements.radioChatter, elements.sound, rgb, delta);
+
+      // Ambient soundscapes
+      const nearestPlanetDist = elements.planets ? elements.planets.reduce((min, p) => {
+        if (!p || !p.mesh) return min;
+        return Math.min(min, p.mesh.position.distanceTo(shipGroup.position));
+      }, Infinity) : Infinity;
+      updatePlanetAmbient(elements.planetAmbient, nearestPlanetDist, 150, rgb);
+      if (elements.station && elements.station.group) {
+        const stationDist = shipGroup.position.distanceTo(elements.station.group.position);
+        updateStationBeacon(elements.stationBeacon, stationDist, 60, rgb, delta, elements.sound);
+      }
+      updateAsteroidFieldAmbient(elements.asteroidAmbient, nearestAst, rgb);
 
       // Mining pickups
       updatePickups(state.mining.pickupPool, state, shipGroup, delta, elapsed);

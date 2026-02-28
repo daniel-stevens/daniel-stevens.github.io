@@ -1994,3 +1994,138 @@ describe('C4: Space station', () => {
     assert.match(scene, /DOCK MASTER/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Round 8: Audio Polish & Meta/Fun
+// ---------------------------------------------------------------------------
+
+describe('D1: Shield impact sound', () => {
+  it('triggerShieldImpactSound function exists', () => {
+    assert.match(scene, /function triggerShieldImpactSound/);
+  });
+
+  it('shield impact uses metallic bell frequency 880', () => {
+    assert.match(scene, /triggerShieldImpactSound[\s\S]*?880/);
+  });
+
+  it('shield absorb calls triggerShieldImpactSound', () => {
+    assert.match(scene, /SHIELD ABSORBED[\s\S]*?triggerShieldImpactSound/);
+  });
+});
+
+describe('D2: Ambient soundscapes', () => {
+  it('createPlanetAmbient function exists', () => {
+    assert.match(scene, /function createPlanetAmbient/);
+  });
+
+  it('updatePlanetAmbient function exists', () => {
+    assert.match(scene, /function updatePlanetAmbient/);
+  });
+
+  it('createStationBeacon function exists', () => {
+    assert.match(scene, /function createStationBeacon/);
+  });
+
+  it('createAsteroidFieldAmbient function exists', () => {
+    assert.match(scene, /function createAsteroidFieldAmbient/);
+  });
+
+  it('ambient sounds instantiated in initThreeScene', () => {
+    assert.match(scene, /planetAmbient\s*=\s*createPlanetAmbient/);
+    assert.match(scene, /stationBeacon\s*=\s*createStationBeacon/);
+    assert.match(scene, /asteroidAmbient\s*=\s*createAsteroidFieldAmbient/);
+  });
+});
+
+describe('D3: Dimension shift sound', () => {
+  it('triggerDimensionShiftSound function exists', () => {
+    assert.match(scene, /function triggerDimensionShiftSound/);
+  });
+
+  it('function accepts entering parameter', () => {
+    assert.match(scene, /triggerDimensionShiftSound\(sound,\s*entering\)/);
+  });
+
+  it('dimension shift calls triggerDimensionShiftSound', () => {
+    assert.match(scene, /triggerDimensionShiftSound\(elements\.sound,\s*entering\)/);
+  });
+});
+
+describe('D4: Mute and volume control', () => {
+  it('mute button in HTML', () => {
+    assert.match(html, /id=["']mute-btn["']/);
+  });
+
+  it('volume slider in HTML', () => {
+    assert.match(html, /id=["']volume-slider["']/);
+  });
+
+  it('updateMasterVolume function exists', () => {
+    assert.match(scene, /function updateMasterVolume/);
+  });
+
+  it('muteState passed to startAnimationLoop', () => {
+    assert.match(scene, /startAnimationLoop\([^)]*muteState/);
+  });
+});
+
+describe('E1: Konami code easter egg', () => {
+  it('KONAMI_SEQUENCE constant exists', () => {
+    assert.match(scene, /KONAMI_SEQUENCE/);
+    assert.match(scene, /ArrowUp.*ArrowDown.*ArrowLeft.*ArrowRight/);
+  });
+
+  it('checkKonamiCode function exists', () => {
+    assert.match(scene, /function checkKonamiCode/);
+  });
+
+  it('triggerKonamiSound function exists', () => {
+    assert.match(scene, /function triggerKonamiSound/);
+  });
+
+  it('Konami code unlocks CHAOS MODE', () => {
+    assert.match(scene, /CHAOS MODE ACTIVATED/);
+  });
+
+  it('CHAOS MASTER achievement exists', () => {
+    assert.match(scene, /CHAOS MASTER/);
+    assert.match(scene, /konamiActivated/);
+  });
+});
+
+describe('E2: Score popups', () => {
+  it('createScorePopupContainer function exists', () => {
+    assert.match(scene, /function createScorePopupContainer/);
+  });
+
+  it('showScorePopup function exists', () => {
+    assert.match(scene, /function showScorePopup/);
+  });
+
+  it('score-popup-container id used', () => {
+    assert.match(scene, /score-popup-container/);
+  });
+
+  it('addScore shows popup for points >= 50', () => {
+    assert.match(scene, /points >= 50[\s\S]*?showScorePopup/);
+  });
+});
+
+describe('E3: Screenshot sharing', () => {
+  it('takeScreenshot function exists', () => {
+    assert.match(scene, /function takeScreenshot/);
+  });
+
+  it('screenshot button in HTML', () => {
+    assert.match(html, /id=["']screenshot-btn["']/);
+  });
+
+  it('SCREENSHOT SAVED action text', () => {
+    assert.match(scene, /SCREENSHOT SAVED/);
+  });
+
+  it('SHUTTERBUG achievement exists', () => {
+    assert.match(scene, /SHUTTERBUG/);
+    assert.match(scene, /screenshotTaken/);
+  });
+});
