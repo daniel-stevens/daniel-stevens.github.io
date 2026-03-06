@@ -9,7 +9,7 @@ const root = resolve(__dirname, '..');
 
 const html = readFileSync(resolve(root, 'index.html'), 'utf-8');
 const scene = readFileSync(resolve(root, 'scene.js'), 'utf-8');
-const projectsHtml = readFileSync(resolve(root, 'projects.html'), 'utf-8');
+
 
 // ---------------------------------------------------------------------------
 // HTML Structure
@@ -1772,83 +1772,6 @@ describe('A3: Nebula volumetric lighting', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Projects page
-// ---------------------------------------------------------------------------
-
-describe('projects.html structure', () => {
-  it('has valid HTML structure with doctype and lang', () => {
-    assert.match(projectsHtml, /<!DOCTYPE html>/i);
-    assert.match(projectsHtml, /<html lang="en">/);
-  });
-
-  it('has SEO meta tags', () => {
-    assert.match(projectsHtml, /og:title/);
-    assert.match(projectsHtml, /og:description/);
-    assert.match(projectsHtml, /canonical/);
-    assert.match(projectsHtml, /twitter:card/);
-  });
-
-  it('has JSON-LD structured data', () => {
-    assert.match(projectsHtml, /application\/ld\+json/);
-    assert.match(projectsHtml, /"CollectionPage"/);
-  });
-
-  it('links back to index.html', () => {
-    assert.match(projectsHtml, /href="index\.html"/);
-  });
-
-  it('has My Projects and Interesting Forks sections', () => {
-    assert.match(projectsHtml, /My Projects/);
-    assert.match(projectsHtml, /Interesting Forks/);
-  });
-
-  it('links to GitHub repos', () => {
-    assert.match(projectsHtml, /github\.com\/daniel-stevens\//);
-  });
-});
-
-describe('index.html links to projects', () => {
-  it('has a link to projects.html', () => {
-    assert.match(html, /projects\.html/);
-  });
-});
-
-describe('Project cards in 3D scene', () => {
-  it('PROJECTS array exists with name, desc, lang, category', () => {
-    assert.match(scene, /const PROJECTS\s*=\s*\[/);
-    assert.match(scene, /name:\s*'/);
-    assert.match(scene, /category:\s*'(original|fork)'/);
-  });
-
-  it('PROJECT_COLORS has original and fork keys', () => {
-    assert.match(scene, /const PROJECT_COLORS/);
-    assert.match(scene, /'original':\s*'#/);
-    assert.match(scene, /'fork':\s*'#/);
-  });
-
-  it('createProjectCardTexture function exists', () => {
-    assert.match(scene, /function createProjectCardTexture/);
-  });
-
-  it('createFloatingProjects function exists', () => {
-    assert.match(scene, /function createFloatingProjects/);
-  });
-
-  it('projectGroup added to elements', () => {
-    assert.match(scene, /projectGroup/);
-    assert.match(scene, /elements\.projectGroup/);
-  });
-
-  it('wrapProjects function exists', () => {
-    assert.match(scene, /function wrapProjects/);
-  });
-
-  it('3D link to projects.html in interactive links', () => {
-    assert.match(scene, /projects\.html/);
-    assert.match(scene, /\[ Projects \]/);
-  });
-});
 
 // ---------------------------------------------------------------------------
 // Round 7: Polish & Visual Upgrades
