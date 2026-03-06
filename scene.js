@@ -754,8 +754,8 @@ function createInputState(canvas) {
     switch (e.code) {
       case 'KeyW': case 'ArrowUp':    input.forward = true; break;
       case 'KeyS': case 'ArrowDown':  input.backward = true; break;
-      case 'KeyA': case 'ArrowLeft':  input.left = true; input.leftTapped = true; break;
-      case 'KeyD': case 'ArrowRight': input.right = true; input.rightTapped = true; break;
+      case 'KeyA': case 'ArrowLeft':  input.left = true; if (!e.repeat) input.leftTapped = true; break;
+      case 'KeyD': case 'ArrowRight': input.right = true; if (!e.repeat) input.rightTapped = true; break;
       case 'Space': input.boost = true; e.preventDefault(); break;
       case 'KeyQ': input.flipRequested = true; break;
       case 'KeyF': input.fireRequested = true; break;
