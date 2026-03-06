@@ -50,6 +50,11 @@
     <p><a href="library.html"><button type="button">Good Reads</button></a></p>
     <p><a href="projects.html"><button type="button">Projects</button></a></p>
 
+    <div style="margin-top: 40px;">
+        <audio id="music-player" preload="none"></audio>
+        <button id="music-btn" type="button" style="font-family: monospace; font-size: 14px; background: none; color: #666; border: 1px solid #ccc; padding: 4px 12px; cursor: pointer;">&#9654; music</button>
+    </div>
+
     <div id="prompt-trigger" style="margin-top: 40px; cursor: pointer;">
         <button type="button" style="font-family: monospace; font-size: 16px; background: #000; color: #0f0; border: 1px solid #0f0; padding: 8px 20px; cursor: pointer; letter-spacing: 2px;">overengineer</button>
     </div>
@@ -183,6 +188,22 @@
         #loading-dots { animation: loadingPulse 1.2s ease-in-out infinite; }
     </style>
     <canvas id="threejs-canvas"></canvas>
+    <script>
+    (function() {
+        const songs = ['a.mp3','d.mp3','e.mp3','l.mp3','n.mp3','u.mp3'];
+        const audio = document.getElementById('music-player');
+        const btn = document.getElementById('music-btn');
+        let playing = false;
+        function pickSong() { audio.src = 'good-music/' + songs[Math.floor(Math.random() * songs.length)]; }
+        audio.addEventListener('ended', function() { pickSong(); audio.play(); });
+        btn.addEventListener('click', function() {
+            if (!playing) { pickSong(); audio.play(); btn.innerHTML = '&#9646;&#9646; music'; playing = true; }
+            else { audio.pause(); btn.innerHTML = '&#9654; music'; playing = false; }
+        });
+        window._musicPlayer = audio;
+        window._musicSongs = songs;
+    })();
+    </script>
     <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
     <script type="module" src="scene.js"></script>
 </body>

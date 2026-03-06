@@ -1328,6 +1328,18 @@ function initThreeScene(canvas) {
   startAnimationLoop(renderFn, elements, camera, shipGroup, physics, input, state, lights, rgbState, muteState, scene, renderer);
   setupResize(camera, renderer, composer, bloomPass);
 
+  // Start a random song from good-music on game start
+  try {
+    const audio = window._musicPlayer;
+    const songs = window._musicSongs;
+    if (audio && songs) {
+      audio.src = 'good-music/' + songs[Math.floor(Math.random() * songs.length)];
+      audio.play().catch(() => {});
+      const btn = document.getElementById('music-btn');
+      if (btn) { btn.innerHTML = '&#9646;&#9646; music'; }
+    }
+  } catch(e) {}
+
   // Font ready — assemble ship
   function onFontReady(font) {
     try {
@@ -5283,6 +5295,8 @@ function updateMasterVolume(sound, muteState) {
   const base = sound.masterGain._rgbTarget !== undefined ? sound.masterGain._rgbTarget : 0.3;
   const target = muteState.muted ? 0 : base * muteState.volume;
   sound.masterGain.gain.value += (target - sound.masterGain.gain.value) * 0.1;
+  const mp = window._musicPlayer;
+  if (mp) { mp.volume = muteState.muted ? 0 : muteState.volume; }
 }
 
 function createSpatialPanner(ctx, refDist, maxDist) {
