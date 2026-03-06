@@ -50,9 +50,13 @@
     <p><a href="library.html"><button type="button">Good Reads</button></a></p>
     <p><a href="projects.html"><button type="button">Projects</button></a></p>
 
-    <div style="margin-top: 40px;">
+    <div style="margin-top: 40px; position: relative; display: inline-block;">
         <audio id="music-player" preload="none"></audio>
         <button id="music-btn" type="button" style="font-family: monospace; font-size: 14px; background: none; color: #666; border: 1px solid #ccc; padding: 4px 12px; cursor: pointer;">&#9654; music</button>
+        <div id="roulette-wrap" style="display:none; margin-top:12px; position:relative;">
+            <div style="text-align:center; font-size:18px; line-height:1; pointer-events:none;">&#9660;</div>
+            <canvas id="roulette" width="220" height="220" style="display:block; margin:0 auto;"></canvas>
+        </div>
     </div>
 
     <div id="prompt-trigger" style="margin-top: 40px; cursor: pointer;">
@@ -191,17 +195,123 @@
     <script>
     (function() {
         const songs = ['a.mp3','d.mp3','e.mp3','l.mp3','n.mp3','u.mp3'];
+        const colors = ['#e74c3c','#f39c12','#2ecc71','#3498db','#9b59b6','#1abc9c'];
         const audio = document.getElementById('music-player');
         const btn = document.getElementById('music-btn');
-        let playing = false;
-        function pickSong() { audio.src = 'good-music/' + songs[Math.floor(Math.random() * songs.length)]; }
-        audio.addEventListener('ended', function() { pickSong(); audio.play(); });
-        btn.addEventListener('click', function() {
-            if (!playing) { pickSong(); audio.play(); btn.innerHTML = '&#9646;&#9646; music'; playing = true; }
-            else { audio.pause(); btn.innerHTML = '&#9654; music'; playing = false; }
+        const wrap = document.getElementById('roulette-wrap');
+        const cvs = document.getElementById('roulette');
+        const ctx = cvs.getContext('2d');
+        const cx = 110, cy = 110, r = 90;
+        const seg = (Math.PI * 2) / songs.length;
+        let playing = false, spinning = false, angle = 0;
+
+        function drawWheel(a) {
+            ctx.clearRect(0, 0, 220, 220);
+            for (let i = 0; i < songs.length; i++) {
+                const start = a + i * seg, end = start + seg;
+                ctx.beginPath();
+                ctx.moveTo(cx, cy);
+                ctx.arc(cx, cy, r, start, end);
+                ctx.closePath();
+                ctx.fillStyle = colors[i];
+                ctx.fill();
+                ctx.strokeStyle = '#fff';
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+                ctx.save();
+                ctx.translate(cx, cy);
+                ctx.rotate(start + seg / 2);
+                ctx.fillStyle = '#fff';
+                ctx.font = 'bold 18px monospace';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(songs[i].replace('.mp3', ''), r * 0.6, 0);
+                ctx.restore();
+            }
+            // center cap
+            ctx.beginPath();
+            ctx.arc(cx, cy, 14, 0, Math.PI * 2);
+            ctx.fillStyle = '#222';
+            ctx.fill();
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        }
+
+        function spin() {
+            if (spinning) return;
+            spinning = true;
+            const target = Math.floor(Math.random() * songs.length);
+            // spin several full rotations + land so target segment is at top (–π/2)
+            const targetAngle = -(target * seg + seg / 2) - Math.PI / 2;
+            const totalSpin = Math.PI * 2 * (5 + Math.random() * 3) + targetAngle - angle;
+            const startAngle = angle;
+            const duration = 3000 + Math.random() * 1000;
+            const t0 = performance.now();
+
+            function ease(t) {
+                // cubic ease-out
+                return 1 - Math.pow(1 - t, 3);
+            }
+
+            function frame(now) {
+                const elapsed = now - t0;
+                const progress = Math.min(elapsed / duration, 1);
+                angle = startAngle + totalSpin * ease(progress);
+                drawWheel(angle);
+                if (progress < 1) {
+                    requestAnimationFrame(frame);
+                } else {
+                    spinning = false;
+                    // flash winning segment
+                    let flashes = 0;
+                    const flashInterval = setInterval(function() {
+                        ctx.beginPath();
+                        ctx.moveTo(cx, cy);
+                        ctx.arc(cx, cy, r, angle + target * seg, angle + target * seg + seg);
+                        ctx.closePath();
+                        ctx.fillStyle = flashes % 2 === 0 ? 'rgba(255,255,255,0.4)' : colors[target];
+                        ctx.fill();
+                        flashes++;
+                        if (flashes >= 6) {
+                            clearInterval(flashInterval);
+                            drawWheel(angle);
+                            audio.src = 'good-music/' + songs[target];
+                            audio.play();
+                            playing = true;
+                            btn.innerHTML = '&#9646;&#9646; music';
+                        }
+                    }, 150);
+                }
+            }
+            requestAnimationFrame(frame);
+        }
+
+        drawWheel(angle);
+
+        audio.addEventListener('ended', function() {
+            // auto-spin for next song
+            wrap.style.display = 'block';
+            spin();
         });
+
+        btn.addEventListener('click', function() {
+            if (spinning) return;
+            if (!playing) {
+                wrap.style.display = 'block';
+                spin();
+            } else {
+                audio.pause();
+                btn.innerHTML = '&#9654; music';
+                playing = false;
+                wrap.style.display = 'none';
+            }
+        });
+
         window._musicPlayer = audio;
         window._musicSongs = songs;
+        window._musicRouletteSpin = spin;
+        window._musicRouletteWrap = wrap;
     })();
     </script>
     <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
