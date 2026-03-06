@@ -1007,6 +1007,7 @@ function initThreeScene(canvas) {
   const stars = createStarfield(scene, preset.stars);
   const ambient = createAmbientParticles(scene, preset.ambient);
   const bookGroup = createFloatingBooks(scene);
+  const codeDebrisGroup = createCodeDebris(scene, qualityLevel);
 
   // Ship group
   const shipGroup = new THREE.Group();
@@ -1070,7 +1071,7 @@ function initThreeScene(canvas) {
 
   const elements = {
     stars, ambient, titleMesh: null, tagMeshes: [], linkMeshes: [],
-    bookGroup, thruster, engineGlowL, engineGlowR, engineFlames,
+    bookGroup, codeDebrisGroup, thruster, engineGlowL, engineGlowR, engineFlames,
     speedLines, boostFlash, rainbowTrail, minimapCtx, flipBurst,
     asteroids, nebulae, planets, station, shield, contrailL, contrailR, warpTunnel,
     shockwaves, missiles, explosions, debris, damageSparks, smokeTrail, damageFlash, hitMarkers, nebulaWisps, nebulaTint, sound, lightning, blackHole, drone,
@@ -1942,6 +1943,310 @@ function createFloatingBooks(scene) {
 
   scene.add(group);
   return group;
+}
+
+// ---------------------------------------------------------------------------
+// Floating code debris (actual source code from this codebase)
+// ---------------------------------------------------------------------------
+
+const CODE_PANELS = [
+  { file: 'scene.js', title: 'Chromatic Aberration Shader', code: 'const ChromaticAberrationShader = {\n  uniforms: {\n    tDiffuse: { value: null },\n    amount: { value: 0.0 },\n  },\n  fragmentShader: `\n    uniform sampler2D tDiffuse;\n    uniform float amount;\n    varying vec2 vUv;\n    void main() {\n      vec2 dir = vUv - vec2(0.5);\n      float r = texture2D(tDiffuse,\n        vUv + dir * amount).r;\n      float g = texture2D(tDiffuse, vUv).g;\n      float b = texture2D(tDiffuse,\n        vUv - dir * amount).b;\n      gl_FragColor = vec4(r, g, b, 1.0);\n    }`' },
+  { file: 'scene.js', title: 'Gravitational Lensing', code: 'vec2 dir = vUv - blackHoleScreenPos;\nfloat dist = length(dir);\nfloat normDist = dist / radius;\nfloat warp = 0.0;\nif (normDist < 1.0 && normDist > 0.05) {\n  warp = distortionStrength *\n    (1.0 - normDist) * (1.0 - normDist)\n    / normDist;\n}\nvec2 warpedUv = vUv +\n  normalize(dir) * warp * 0.05;\nfloat darkness =\n  smoothstep(0.0, 0.08, normDist);' },
+  { file: 'scene.js', title: 'Screen Crack Shader', code: 'float crackLine(vec2 uv, vec2 origin,\n  vec2 dir, float len) {\n  vec2 d = uv - origin;\n  float proj = dot(d, dir);\n  if (proj < 0.0 || proj > len)\n    return 0.0;\n  float perp = length(\n    d - dir * proj);\n  return smoothstep(0.003, 0.0, perp)\n    * smoothstep(len, 0.0, proj * 0.5);\n}' },
+  { file: 'scene.js', title: 'Barrel Roll Detection', code: 'if (input.leftTapped) {\n  input.leftTapped = false;\n  const now = performance.now();\n  if (now - input.lastLeftTap < 250\n      && !state.barrelRoll.active\n      && !state.flip.active) {\n    triggerBarrelRoll(\n      state, 1, elapsed, physics,\n      shipGroup);\n    triggerRollSound(\n      elements.sound, 1);\n  }\n  input.lastLeftTap = now;\n}' },
+  { file: 'scene.js', title: 'Barrel Roll Physics', code: 'function triggerBarrelRoll(\n  state, direction, elapsed,\n  physics, shipGroup) {\n  state.barrelRoll.active = true;\n  state.barrelRoll.direction = direction;\n  state.barrelRoll.startTime = elapsed;\n  const fwd = new THREE.Vector3(\n    0, 0, -1).applyQuaternion(\n    shipGroup.quaternion);\n  physics.velocity.addScaledVector(\n    fwd, Math.max(\n      physics.speed * 0.2, 2));\n}' },
+  { file: 'scene.js', title: 'Engine Sound Synthesis', code: 'const ctx = new AudioContext();\nconst oscL = ctx.createOscillator();\noscL.type = "sawtooth";\noscL.frequency.value = 60;\nconst oscR = ctx.createOscillator();\noscR.type = "sawtooth";\noscR.frequency.value = 90;\nconst filterL = ctx.createBiquadFilter();\nfilterL.type = "lowpass";\nfilterL.frequency.value = 200;\nconst gainL = ctx.createGain();\ngainL.gain.value = 0;' },
+  { file: 'scene.js', title: 'Explosion Sound', code: 'function triggerExplosionSound(sound) {\n  if (!sound) return;\n  const ctx = sound.ctx;\n  const osc = ctx.createOscillator();\n  osc.type = "sine";\n  osc.frequency.value = 30;\n  const gain = ctx.createGain();\n  gain.gain.setValueAtTime(\n    0.5, ctx.currentTime);\n  gain.gain.exponentialRampToValueAtTime(\n    0.001, ctx.currentTime + 0.8);\n  osc.connect(gain);\n  gain.connect(sound.masterGain);\n}' },
+  { file: 'scene.js', title: 'Ship Physics', code: 'const physics = {\n  thrust: 12,\n  drag: 0.985,\n  maxSpeed: 60,\n  baseSpeed: 8,\n  velocity: new THREE.Vector3(),\n  speed: 0,\n};\n// Chase camera follows behind ship\n// FOV warps 60-85 degrees\n//   based on speed + boost\n// Infinite space:\n//   objects wrap around player' },
+  { file: 'scene.js', title: 'Death Replay Camera', code: '// Circular buffer records\n//   180-300 frames of ship\n//   position/rotation/speed/camera\n// On death: plays back at 0.5x speed\n//   with orbiting camera\n//   (8-unit radius, sinusoidal height)\n// Letterbox bars\n//   (12vh black bars top/bottom)\n// 5-second respawn countdown\nconst replayBuffer = [];\nconst REPLAY_MAX = 300;\nconst REPLAY_SPEED = 0.5;' },
+  { file: 'scene.js', title: 'Procedural Music - Kick', code: '// Kick drum — pre-rendered buffer\nconst kickBuffer =\n  ctx.createBuffer(1, sr * 0.3, sr);\nconst kickData =\n  kickBuffer.getChannelData(0);\nfor (let i = 0; i < kickData.length;\n  i++) {\n  const t = i / sr;\n  const freq = 60 *\n    Math.exp(-t * 20);\n  kickData[i] = Math.sin(\n    2 * Math.PI * freq * t)\n    * Math.exp(-t * 8);\n}' },
+  { file: 'scene.js', title: 'EMP Blast', code: 'function triggerEMPBlast(\n  state, elements, shipGroup) {\n  const charge = state.emp.charge;\n  const radius = 20 + charge * 30;\n  // Destroy all objects in radius\n  elements.asteroids.meshes\n    .forEach((a) => {\n    const dist = a.position\n      .distanceTo(shipGroup.position);\n    if (dist < radius) {\n      destroyAsteroid(a, elements,\n        state);\n    }\n  });\n}' },
+  { file: 'scene.js', title: 'Wormhole Dimension Shift', code: 'function triggerDimensionShift(\n  state, elements) {\n  state.dimension = state.dimension\n    === "normal" ? "alt" : "normal";\n  const palette =\n    DIMENSION_PALETTES[state.dimension];\n  // Changes star colors,\n  //   ambient particles,\n  //   nebula hues\n  //   (HSL 0.33 saturation shift)\n  // DimensionShiftShader visual\n  // Different color palette\n}' },
+  { file: 'scene.js', title: 'Hyperspace Jump', code: '// Hold SHIFT (2s charge)\n// Teleports 300-500 units\n//   in random direction\n// Velocity reset\n// Bloom flash + shockwaves\n//   at origin and destination\n// 5-15s cooldown\nconst jumpDist =\n  300 + Math.random() * 200;\nconst theta =\n  Math.random() * Math.PI * 2;\nshipGroup.position.x +=\n  Math.cos(theta) * jumpDist;\nshipGroup.position.z +=\n  Math.sin(theta) * jumpDist;' },
+  { file: 'scene.js', title: 'Achievement System', code: 'const ACHIEVEMENTS = [\n  { id: "first_blood",\n    name: "FIRST BLOOD",\n    desc: "Destroy your first asteroid",\n    check: s => s.kills >= 1 },\n  { id: "speed_demon",\n    name: "SPEED DEMON",\n    desc: "Reach 80% max speed",\n    check: s => s.maxSpeed > 0.8 },\n  { id: "barrel_king",\n    name: "BARREL KING",\n    desc: "Perform 5 barrel rolls",\n    check: s => s.barrelRolls >= 5 },\n];' },
+  { file: 'scene.js', title: 'Weather System', code: 'const WEATHER_TYPES = {\n  SOLAR_FLARE:\n    { bloom: "pulse" },\n  RADIATION_STORM:\n    { fog: "green",\n      healthDrain: 0.1 },\n  METEOR_SHOWER:\n    { spawns: "mini-comets" },\n  AURORA:\n    { ribbons: true,\n      rainbow: true },\n  ICE_FIELD:\n    { fog: "blue",\n      crystals: true },\n  CLEAR: {},\n};' },
+  { file: 'scene.js', title: 'Black Hole Gravity', code: '// Inverse-square gravity affects\n//   asteroids and ship\nconst dx = blackHole.position.x\n  - obj.position.x;\nconst dz = blackHole.position.z\n  - obj.position.z;\nconst distSq = dx * dx + dz * dz;\nconst force = 500 / distSq;\nobj.position.x +=\n  dx * force * delta;\nobj.position.z +=\n  dz * force * delta;\n// Gravitational lensing shader\n//   distorts view on proximity' },
+  { file: 'scene.js', title: 'Missile Homing', code: 'missiles.forEach((m) => {\n  if (!m.active) return;\n  // Find nearest target\n  let nearest = null;\n  let nearDist = 100;\n  asteroids.meshes.forEach((a) => {\n    const d = m.mesh.position\n      .distanceTo(a.position);\n    if (d < nearDist) {\n      nearDist = d;\n      nearest = a;\n    }\n  });\n  if (nearest) {\n    // Steer toward target\n    const dir = nearest.position\n      .clone().sub(m.mesh.position)\n      .normalize();\n    m.velocity.lerp(dir, 0.08);\n  }\n});' },
+  { file: 'scene.js', title: 'Space Whale', code: '// Cyan ellipsoid body +\n//   6 animated tendrils +\n//   100-point trail\n// Sinusoidal weaving motion\n// Low-frequency whale song audio\nwhale.position.x +=\n  Math.sin(elapsed * 0.3) * 0.2;\nwhale.position.y +=\n  Math.sin(elapsed * 0.5) * 0.1;\nwhale.tendrils.forEach((t, i) => {\n  t.rotation.x =\n    Math.sin(elapsed * 2 + i) * 0.3;\n  t.rotation.z =\n    Math.cos(elapsed * 1.5 + i) * 0.2;\n});' },
+  { file: 'scene.js', title: 'Starfield Wrapping', code: 'function wrapStarfield(stars, shipPos){\n  const positions =\n    stars.geometry.attributes\n      .position.array;\n  const wrapRadius = 150;\n  for (let i = 0;\n    i < positions.length; i += 3) {\n    const dx = positions[i]-shipPos.x;\n    const dy = positions[i+1]-shipPos.y;\n    const dz = positions[i+2]-shipPos.z;\n    const distSq =\n      dx*dx + dy*dy + dz*dz;\n    if (distSq > wrapRadius*wrapRadius)\n      // respawn at random shell pos\n  }\n}' },
+  { file: 'scene.js', title: 'Quality Auto-Scaling', code: '// Downgrade: FPS < 25 sustained\n// Upgrade: FPS > 55 sustained\n// FPS tracked in rolling history\nif (avgFps < 25\n    && sustained > threshold) {\n  const levels = [\n    "LOW","MEDIUM","HIGH","INSANE"];\n  const idx = levels.indexOf(\n    state.quality.current);\n  if (idx > 0) {\n    applyQuality(levels[idx - 1]);\n    showActionText(\n      "QUALITY: " + levels[idx-1]);\n  }\n}' },
+  { file: 'index.html', title: 'HUD Elements', code: '<div id="speed-hud">\n  SPEED: 0\n</div>\n<div id="score-hud">\n  SCORE: 0\n</div>\n<canvas id="minimap"\n  width="150" height="150">\n</canvas>\n<div id="health-bar-hud">\n  <div>HULL</div>\n  <div id="health-bar-inner"\n    style="width:100%">\n  </div>\n</div>' },
+  { file: 'index.html', title: 'Import Map', code: '<script type="importmap">\n{\n  "imports": {\n    "three":\n      "https://cdn.jsdelivr.net/npm/\n       three@0.172.0/build/\n       three.module.js",\n    "three/addons/":\n      "https://cdn.jsdelivr.net/npm/\n       three@0.172.0/examples/jsm/"\n  }\n}\n</script>' },
+  { file: 'scene.js', title: 'Konami Code', code: '// Up Up Down Down Left Right\n//   Left Right B A\nconst KONAMI_SEQUENCE = [\n  "ArrowUp", "ArrowUp",\n  "ArrowDown", "ArrowDown",\n  "ArrowLeft", "ArrowRight",\n  "ArrowLeft", "ArrowRight",\n  "KeyB", "KeyA"\n];\n// Unlocks CHAOS MODE\n//   rainbow trail + enhanced\n//   chromatic aberration\n// Triggers 5-note ascending scale\n// CHAOS MASTER achievement' },
+  { file: 'scene.js', title: 'Multiplayer Ghost Ships', code: '// BroadcastChannel for\n//   same-device tab communication\n// PeerJS for cross-device WebRTC\n// Broadcasts pos/rot/speed\n//   at 10Hz\nconst channel =\n  new BroadcastChannel(\n    "danielstevens-space");\n// Ghost ships: wireframe cone\n//   color-hashed from peer ID\n// 50-point trailing line\n// Position interpolation\n//   (0.15 lerp rate)\n// Stale cleanup (>5s timeout)' },
+  { file: 'scene.js', title: 'Shield System', code: '// Two-layer shield system:\n// wireframe IcosahedronGeometry\n//   outer shell\n// SphereGeometry inner glow\n// Color synced to HSL\n// Pulse animation\n// Ripple on impact/boost\nshield.outer.material.opacity =\n  0.15 + Math.sin(elapsed * 3)\n    * 0.05;\nshield.inner.material.opacity =\n  0.08 + Math.sin(elapsed * 2)\n    * 0.03;\n// Absorbs hits when RGB > 0.3' },
+  { file: 'scene.js', title: 'Comet Storm', code: '// Timer-based events\n// 12-comet pool\n// Spawn every 0.3-0.5s aimed\n//   at ship during 8s storm\n// 12-20 damage on hit\nif (state.cometStorm.active) {\n  state.cometStorm.timer -= delta;\n  if (state.cometStorm.timer <= 0) {\n    const comet = getPooledComet();\n    aimAtShip(comet, shipGroup);\n    state.cometStorm.timer =\n      0.3 + Math.random() * 0.2;\n  }\n}' },
+  { file: 'scene.js', title: 'Whale Song Audio', code: '// Two sines (40Hz, 42Hz)\n//   through bandpass filter\nfunction createWhaleSong(ctx) {\n  const osc1 =\n    ctx.createOscillator();\n  osc1.frequency.value = 40;\n  const osc2 =\n    ctx.createOscillator();\n  osc2.frequency.value = 42;\n  const filter =\n    ctx.createBiquadFilter();\n  filter.type = "bandpass";\n  filter.frequency.value = 41;\n  filter.Q.value = 5;\n  // proximity-scaled volume\n}' },
+  { file: 'scene.js', title: 'Boss Fight', code: '// Core icosahedron +\n//   6 orbiting octahedron segments\n//   with individual health\n// Fires projectiles every 1.5s\n// Defeating all segments:\n//   1000 points + next threshold\nboss.segments.forEach((seg, i) => {\n  const angle = elapsed * 0.8\n    + i * Math.PI / 3;\n  seg.mesh.position.set(\n    boss.core.position.x\n      + Math.cos(angle) * 8,\n    boss.core.position.y,\n    boss.core.position.z\n      + Math.sin(angle) * 8);\n});' },
+  { file: 'scene.js', title: 'Nebula Lightning', code: '// 3-layer sprites per cloud\n// Lightning flashes\n// Dust particle burst\n//   on flythrough\n// Proximity glow + tint overlay\nif (Math.random() < 0.002 * rgb) {\n  const bolt = createLightning(\n    nebula.position,\n    nebula.position.clone().add(\n      new THREE.Vector3(\n        (Math.random()-0.5) * 20,\n        (Math.random()-0.5) * 10,\n        (Math.random()-0.5) * 20\n    )));\n  triggerLightningSound(sound);\n}' },
+  { file: 'scene.js', title: 'Motion Blur Shader', code: 'const MotionBlurShader = {\n  uniforms: {\n    tDiffuse: { value: null },\n    strength: { value: 0.0 },\n    direction: {\n      value: new THREE.Vector2() },\n  },\n  fragmentShader: `\n    // 9-sample directional blur\n    vec4 color = vec4(0.0);\n    for (int i = -4; i <= 4; i++) {\n      vec2 offset = direction\n        * float(i) * strength;\n      color += texture2D(\n        tDiffuse, vUv + offset);\n    }\n    gl_FragColor = color / 9.0;\n  `\n};' },
+  { file: 'scene.js', title: 'Volumetric Light', code: 'const VolumetricLightShader = {\n  uniforms: {\n    tDiffuse: { value: null },\n    lightScreenPos: {\n      value: new THREE.Vector2() },\n    lightColor: {\n      value: new THREE.Vector3() },\n  },\n  // God rays from nebulae\n  // Radial sampling toward\n  //   light source position\n  // Accumulates brightness\n  //   along ray direction\n  // Blended additively\n};' },
+  { file: 'scene.js', title: 'Procedural Planet Textures', code: '// 4 types: rocky, gas, ice, lava\n// Canvas-generated textures\nfunction generatePlanetTexture(\n  type) {\n  const c =\n    document.createElement("canvas");\n  c.width = 256; c.height = 256;\n  const ctx = c.getContext("2d");\n  // Layered noise passes\n  // Atmosphere pulse glow\n  // Optional ring system\n  // 3-5 scattered in scene\n  return new THREE.CanvasTexture(c);\n}' },
+  { file: 'scene.js', title: 'Spatial Audio', code: 'function createSpatialPanner(\n  ctx, refDist, maxDist) {\n  const panner =\n    ctx.createPanner();\n  panner.panningModel = "HRTF";\n  panner.distanceModel = "inverse";\n  panner.refDistance = refDist;\n  panner.maxDistance = maxDist;\n  panner.rolloffFactor = 1;\n  return panner;\n}\n// Syncs Web Audio listener\n//   to camera position/orientation\n// updateAudioListener() per frame' },
+  { file: 'scene.js', title: 'Object Pooling', code: '// Missiles: pool of 6\n// Explosions: pool of 4\n// Debris: 12 pieces\n// Shockwaves: pool of 3\n// Hit markers: pool of 6\n// Comets: pool of 12\nfunction getPooledMissile() {\n  for (const m of missiles) {\n    if (!m.active) {\n      m.active = true;\n      m.lifetime = 0;\n      m.mesh.visible = true;\n      return m;\n    }\n  }\n  return null;\n}' },
+  { file: 'scene.js', title: 'Particle Contrails', code: '// 250-400 count per side\n// Custom colors from ship config\nfunction updateContrail(\n  contrail, origin, elapsed) {\n  const pos = contrail.geometry\n    .attributes.position.array;\n  // Shift all positions back\n  for (let i = pos.length - 3;\n    i >= 3; i -= 3) {\n    pos[i] = pos[i - 3];\n    pos[i+1] = pos[i - 2];\n    pos[i+2] = pos[i - 1];\n  }\n  pos[0] = origin.x;\n  pos[1] = origin.y;\n  pos[2] = origin.z;\n}' },
+  { file: 'scene.js', title: 'FOV Warp Effect', code: '// FOV warps 60-85 degrees\n//   based on speed + boost\nconst targetFov = 60\n  + (physics.speed / physics.maxSpeed)\n    * 15\n  + (input.boost ? 10 : 0);\ncamera.fov += (targetFov\n  - camera.fov) * 0.05;\ncamera.updateProjectionMatrix();\n\n// Camera shake on damage\nif (state.shake > 0) {\n  camera.position.x +=\n    (Math.random()-0.5)*state.shake;\n  camera.position.y +=\n    (Math.random()-0.5)*state.shake;\n}' },
+  { file: 'scene.js', title: 'Mission System', code: '// 5 mission types:\n//   hunter, speed_run, survivor,\n//   explorer, whale_finder\n// Spawn on cooldown (45s)\n// Difficulty scales with\n//   completed count\n// Rewards: score + resources\n// Timer-based failure\nconst MISSION_TYPES = {\n  hunter: {\n    desc: "Destroy {n} asteroids",\n    base: 5, scale: 2 },\n  speed_run: {\n    desc: "Maintain speed for {t}s",\n    base: 8, scale: 3 },\n};' },
+];
+
+const CODE_LINES = [
+  'import * as THREE from "three";',
+  'const scene = new THREE.Scene();',
+  'const camera = new THREE.PerspectiveCamera(60, w/h, 0.1, 2000);',
+  'const renderer = new THREE.WebGLRenderer({ antialias: true });',
+  'requestAnimationFrame(animate);',
+  'physics.velocity.multiplyScalar(physics.drag);',
+  'shipGroup.quaternion.setFromEuler(shipGroup.rotation);',
+  'const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(shipGroup.quaternion);',
+  'gl_FragColor = vec4(r, g, b, 1.0);',
+  'uniform sampler2D tDiffuse;',
+  'varying vec2 vUv;',
+  'float dist = length(dir);',
+  'vec2 warpedUv = vUv + normalize(dir) * warp * 0.05;',
+  'float darkness = smoothstep(0.0, 0.08, normDist);',
+  'osc.type = "sawtooth";',
+  'osc.frequency.value = 60;',
+  'gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.8);',
+  'filter.type = "lowpass";',
+  'filter.frequency.value = 200;',
+  'const bloom = new UnrealBloomPass(resolution, 0.5, 0.4, 0.85);',
+  'composer.addPass(renderPass);',
+  'composer.addPass(bloomPass);',
+  'state.barrelRoll.active = true;',
+  'state.barrelRoll.direction = direction;',
+  'const eased = easeInOutCubic(t);',
+  'shipGroup.rotation.z = roll.direction * Math.PI * 2 * eased;',
+  'physics.velocity.addScaledVector(fwd, Math.max(physics.speed * 0.2, 2));',
+  'card.material.opacity = p * 0.85;',
+  'card.position.y = d.yBase + Math.sin(elapsed * d.floatSpeed) * d.floatAmp;',
+  'if (dist > 120) { /* respawn ahead */ }',
+  'card.lookAt(shipPos);',
+  'new THREE.IcosahedronGeometry(size, 1)',
+  'new THREE.MeshStandardMaterial({ color, roughness: 0.8 })',
+  'const texture = new THREE.CanvasTexture(canvas);',
+  'shield.outer.material.opacity = 0.15 + Math.sin(elapsed * 3) * 0.05;',
+  'if (Math.random() < 0.002 * rgb) { triggerLightning(); }',
+  'whale.position.x += Math.sin(elapsed * 0.3) * 0.2;',
+  'panner.panningModel = "HRTF";',
+  'localStorage.setItem("danielstevens-highscore", score);',
+  'const KONAMI_SEQUENCE = ["ArrowUp", "ArrowUp", "ArrowDown", ...];',
+  'new BroadcastChannel("danielstevens-space")',
+  'document.getElementById("threejs-canvas")',
+  'e.preventDefault();',
+  'window.addEventListener("keydown", (e) => { ... });',
+  'Math.sin(elapsed * 2 + i) * 0.3',
+  'Math.cos(elapsed * 1.5 + i) * 0.2',
+  'const kickData = kickBuffer.getChannelData(0);',
+  'kickData[i] = Math.sin(2 * Math.PI * freq * t) * Math.exp(-t * 8);',
+  'const force = 500 / distSq;',
+  'obj.position.x += dx * force * delta;',
+  'warpedUv = vUv + normalize(dir) * warp;',
+  'color.rgb += vec3(0.3, 0.15, 0.5) * rim;',
+  'ctx.fillStyle = "rgba(8, 8, 32, 0.92)";',
+  'ctx.font = "bold 22px Helvetica, Arial, sans-serif";',
+  'osc.frequency.setValueAtTime(200, ctx.currentTime);',
+  'osc.frequency.linearRampToValueAtTime(2000, ctx.currentTime + 0.3);',
+  'gain.gain.setValueAtTime(0.3, ctx.currentTime);',
+  'const noise = ctx.createBufferSource();',
+  'if (state.cometStorm.active) { spawnComet(); }',
+  'boss.segments.forEach((seg, i) => { ... });',
+  'const angle = elapsed * 0.8 + i * Math.PI / 3;',
+  'trigger: s => s.kills >= 1',
+  'trigger: s => s.barrelRolls >= 5',
+  'trigger: s => s.maxSpeed > 0.8',
+  'state.dimension = state.dimension === "normal" ? "alt" : "normal";',
+  'const jumpDist = 300 + Math.random() * 200;',
+  'shipGroup.position.x += Math.cos(theta) * jumpDist;',
+  'const radius = 20 + charge * 30;',
+  '<!DOCTYPE html>',
+  '<html lang="en">',
+  '<canvas id="threejs-canvas"></canvas>',
+  '<meta name="theme-color" content="#000000">',
+  'z-index: 9999;',
+  'position: fixed; top: 0; left: 0;',
+  'font-family: monospace;',
+  'color: rgba(0, 255, 136, 0.8);',
+  'background: rgba(0, 0, 0, 0.4);',
+  'border: 1px solid rgba(0, 255, 136, 0.3);',
+  'text-shadow: 0 0 20px rgba(0,255,136,0.6);',
+  'pointer-events: none;',
+  '@keyframes loadingPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.2; } }',
+  'animation: loadingPulse 1.2s ease-in-out infinite;',
+  '<script type="importmap">',
+  '"three": "https://cdn.jsdelivr.net/npm/three@0.172.0/..."',
+  'preserveDrawingBuffer: true',
+  'const composer = new EffectComposer(renderer);',
+  'new ShaderPass(ChromaticAberrationShader)',
+  'new ShaderPass(GravitationalLensingShader)',
+  'new ShaderPass(ScreenCrackShader)',
+  'new ShaderPass(DimensionShiftShader)',
+  'new ShaderPass(VolumetricLightShader)',
+  'new ShaderPass(MotionBlurShader)',
+  'scene.add(shipGroup);',
+  'scene.add(group);',
+  'renderer.setSize(window.innerWidth, window.innerHeight);',
+  'camera.updateProjectionMatrix();',
+  'stars.geometry.attributes.position.needsUpdate = true;',
+  'const spreadRadius = 200;',
+  'Math.random() * Math.PI * 2',
+  'Math.acos(2 * Math.random() - 1)',
+  'new THREE.SphereGeometry(1, 16, 16)',
+  'new THREE.ConeGeometry(0.5, 2, 8)',
+  'new THREE.TorusGeometry(8, 0.3, 8, 32)',
+  'new THREE.OctahedronGeometry(0.5)',
+  'new THREE.CylinderGeometry(5, 5, 20, 16)',
+  'material.emissive.setHex(0xff4400);',
+  'mesh.visible = true;',
+  'mesh.visible = false;',
+  'm.velocity.lerp(dir, 0.08);',
+  'if (m.lifetime > 5) { m.active = false; }',
+  '// The ship is the name. The name IS the ship.',
+  '// Zero audio files. Everything is synthesized.',
+  '// 8,449 lines. One file. No framework.',
+  '// beginTransformation()',
+  '/* overengineer */',
+];
+
+function createCodePanelTexture(panel) {
+  const c = document.createElement('canvas');
+  c.width = 512;
+  c.height = 256;
+  const ctx = c.getContext('2d');
+
+  ctx.fillStyle = 'rgba(0, 8, 4, 0.95)';
+  ctx.fillRect(0, 0, 512, 256);
+
+  ctx.strokeStyle = '#00ff88';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(2, 2, 508, 252);
+
+  ctx.fillStyle = '#00ff88';
+  ctx.font = 'bold 11px monospace';
+  ctx.fillText('// ' + panel.file + ' — ' + panel.title, 10, 18);
+
+  ctx.fillStyle = '#005533';
+  ctx.fillRect(4, 24, 504, 1);
+
+  const lines = panel.code.split('\n');
+  ctx.font = '11px monospace';
+  lines.forEach((line, i) => {
+    if (i >= 15) return;
+    const y = 38 + i * 14;
+    // Syntax-like coloring
+    if (line.trim().startsWith('//') || line.trim().startsWith('/*')) {
+      ctx.fillStyle = '#338855';
+    } else if (line.match(/function |const |let |var |if |for |return /)) {
+      ctx.fillStyle = '#44ddaa';
+    } else if (line.match(/uniform |varying |void |float |vec[234] |sampler/)) {
+      ctx.fillStyle = '#88aaff';
+    } else {
+      ctx.fillStyle = '#00cc66';
+    }
+    ctx.fillText(line.substring(0, 50), 10, y);
+  });
+
+  return new THREE.CanvasTexture(c);
+}
+
+function createCodeLineTexture(line) {
+  const c = document.createElement('canvas');
+  c.width = 512;
+  c.height = 32;
+  const ctx = c.getContext('2d');
+
+  ctx.fillStyle = 'rgba(0, 4, 2, 0.8)';
+  ctx.fillRect(0, 0, 512, 32);
+
+  ctx.font = '13px monospace';
+  if (line.startsWith('//') || line.startsWith('/*') || line.startsWith('*')) {
+    ctx.fillStyle = '#338855';
+  } else if (line.startsWith('<') || line.startsWith('"three')) {
+    ctx.fillStyle = '#88aaff';
+  } else if (line.match(/^(const |let |var |function |import |new |if |for )/)) {
+    ctx.fillStyle = '#44ddaa';
+  } else {
+    ctx.fillStyle = '#00cc66';
+  }
+  ctx.fillText(line.substring(0, 55), 6, 22);
+
+  return new THREE.CanvasTexture(c);
+}
+
+function createCodeDebris(scene, preset) {
+  const group = new THREE.Group();
+  const spreadRadius = 250;
+
+  // Scale debris count with quality
+  const panelCount = Math.min(CODE_PANELS.length, preset === 'LOW' ? 12 : preset === 'MEDIUM' ? 25 : CODE_PANELS.length);
+  const lineCount = preset === 'LOW' ? 40 : preset === 'MEDIUM' ? 80 : CODE_LINES.length;
+
+  // Large code panels
+  for (let i = 0; i < panelCount; i++) {
+    const texture = createCodePanelTexture(CODE_PANELS[i]);
+    const geo = new THREE.PlaneGeometry(5, 2.5);
+    const mat = new THREE.MeshBasicMaterial({
+      map: texture, transparent: true, opacity: 0, side: THREE.DoubleSide,
+    });
+    const card = new THREE.Mesh(geo, mat);
+    card.position.set(
+      (Math.random() - 0.5) * spreadRadius,
+      (Math.random() - 0.5) * spreadRadius * 0.5,
+      -Math.random() * spreadRadius
+    );
+    card.userData.floatSpeed = 0.2 + Math.random() * 0.3;
+    card.userData.floatAmp = 0.3 + Math.random() * 0.4;
+    card.userData.yBase = card.position.y;
+    card.userData.spinSpeed = (Math.random() - 0.5) * 0.1;
+    card.userData.isPanel = true;
+    group.add(card);
+  }
+
+  // Small line fragments
+  for (let i = 0; i < lineCount; i++) {
+    const line = CODE_LINES[i % CODE_LINES.length];
+    const texture = createCodeLineTexture(line);
+    const geo = new THREE.PlaneGeometry(3.5, 0.22);
+    const mat = new THREE.MeshBasicMaterial({
+      map: texture, transparent: true, opacity: 0, side: THREE.DoubleSide,
+    });
+    const card = new THREE.Mesh(geo, mat);
+    card.position.set(
+      (Math.random() - 0.5) * spreadRadius * 1.2,
+      (Math.random() - 0.5) * spreadRadius * 0.6,
+      -Math.random() * spreadRadius * 1.2
+    );
+    card.rotation.set(
+      (Math.random() - 0.5) * 0.5,
+      Math.random() * Math.PI * 2,
+      (Math.random() - 0.5) * 0.8
+    );
+    card.userData.floatSpeed = 0.3 + Math.random() * 0.5;
+    card.userData.floatAmp = 0.15 + Math.random() * 0.25;
+    card.userData.yBase = card.position.y;
+    card.userData.spinSpeed = (Math.random() - 0.5) * 0.3;
+    card.userData.isPanel = false;
+    group.add(card);
+  }
+
+  scene.add(group);
+  return group;
+}
+
+function wrapCodeDebris(group, shipPos) {
+  group.children.forEach((card) => {
+    const dist = card.position.distanceTo(shipPos);
+    if (dist > 140) {
+      card.position.set(
+        shipPos.x + (Math.random() - 0.5) * 100,
+        shipPos.y + (Math.random() - 0.5) * 50,
+        shipPos.z - (40 + Math.random() * 80)
+      );
+      card.userData.yBase = card.position.y;
+    }
+    if (card.userData.isPanel) {
+      card.lookAt(shipPos);
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -7613,11 +7918,14 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
       }
       elements.ambient.mesh.geometry.attributes.position.needsUpdate = true;
 
-      // Book + project cards fade in
+      // Book + code debris fade in
       if (t > 0.5) {
         const p = clamp01((t - 0.5) / 2.5);
         elements.bookGroup.children.forEach((card) => {
           card.material.opacity = p * 0.85;
+        });
+        elements.codeDebrisGroup.children.forEach((card) => {
+          card.material.opacity = p * (card.userData.isPanel ? 0.9 : 0.6);
         });
       }
 
@@ -7813,6 +8121,7 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
       wrapStarfield(elements.stars, sp);
       wrapAmbientParticles(elements.ambient, sp);
       wrapBooks(elements.bookGroup, sp);
+      wrapCodeDebris(elements.codeDebrisGroup, sp);
 
       // Wrap + update asteroids and nebulae
       wrapAsteroids(elements.asteroids, sp);
@@ -8238,6 +8547,17 @@ function startAnimationLoop(renderFn, elements, camera, shipGroup, physics, inpu
       const d = card.userData;
       if (d.yBase !== undefined) {
         card.position.y = d.yBase + Math.sin(elapsed * d.floatSpeed) * d.floatAmp;
+      }
+    });
+
+    // Code debris float + spin
+    elements.codeDebrisGroup.children.forEach((card) => {
+      const d = card.userData;
+      if (d.yBase !== undefined) {
+        card.position.y = d.yBase + Math.sin(elapsed * d.floatSpeed) * d.floatAmp;
+      }
+      if (d.spinSpeed && !d.isPanel) {
+        card.rotation.z += d.spinSpeed * delta;
       }
     });
 
