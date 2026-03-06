@@ -1336,7 +1336,7 @@ function initThreeScene(canvas) {
       audio.src = 'good-music/' + songs[Math.floor(Math.random() * songs.length)];
       audio.play().catch(() => {});
       const btn = document.getElementById('music-btn');
-      if (btn) { btn.innerHTML = '&#9646;&#9646; music'; }
+      if (btn) { btn.innerHTML = '&#9646;&#9646; g'; }
     }
   } catch(e) {}
 

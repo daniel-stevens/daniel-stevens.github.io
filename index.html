@@ -52,9 +52,9 @@
 
     <div style="margin-top: 40px; position: relative; display: inline-block;">
         <audio id="music-player" preload="none"></audio>
-        <button id="music-btn" type="button" style="font-family: monospace; font-size: 14px; background: none; color: #666; border: 1px solid #ccc; padding: 4px 12px; cursor: pointer;">&#9654; music</button>
+        <button id="music-btn" type="button" style="font-family: monospace; font-size: 14px; background: none; color: #666; border: 1px solid #ccc; padding: 4px 12px; cursor: pointer;">&#9654; g</button>
         <div id="roulette-wrap" style="display:none; margin-top:12px; position:relative;">
-            <div style="text-align:center; font-size:18px; line-height:1; pointer-events:none;">&#9660;</div>
+            <div id="roulette-pointer" style="text-align:center; font-size:22px; line-height:1; pointer-events:none; color:#222;">&#9660;</div>
             <canvas id="roulette" width="220" height="220" style="display:block; margin:0 auto;"></canvas>
         </div>
     </div>
@@ -199,13 +199,23 @@
         const audio = document.getElementById('music-player');
         const btn = document.getElementById('music-btn');
         const wrap = document.getElementById('roulette-wrap');
+        const pointer = document.getElementById('roulette-pointer');
         const cvs = document.getElementById('roulette');
         const ctx = cvs.getContext('2d');
         const cx = 110, cy = 110, r = 90;
         const seg = (Math.PI * 2) / songs.length;
         let playing = false, spinning = false, angle = 0;
 
-        function drawWheel(a) {
+        // Arrow points straight down into the wheel top = canvas angle -π/2
+        const ARROW_ANGLE = -Math.PI / 2;
+
+        function getWinner(a) {
+            // normalize angle so segment 0 starts at 0
+            var norm = ((ARROW_ANGLE - a) % (Math.PI * 2) + Math.PI * 4) % (Math.PI * 2);
+            return Math.floor(norm / seg) % songs.length;
+        }
+
+        function drawWheel(a, highlight) {
             ctx.clearRect(0, 0, 220, 220);
             for (let i = 0; i < songs.length; i++) {
                 const start = a + i * seg, end = start + seg;
@@ -218,6 +228,11 @@
                 ctx.strokeStyle = '#fff';
                 ctx.lineWidth = 1.5;
                 ctx.stroke();
+                // highlight winner
+                if (highlight === i) {
+                    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+                    ctx.fill();
+                }
                 ctx.save();
                 ctx.translate(cx, cy);
                 ctx.rotate(start + seg / 2);
@@ -228,6 +243,9 @@
                 ctx.fillText(songs[i].replace('.mp3', ''), r * 0.6, 0);
                 ctx.restore();
             }
+            // color the pointer to match segment under arrow
+            var w = getWinner(a);
+            pointer.style.color = colors[w];
             // center cap
             ctx.beginPath();
             ctx.arc(cx, cy, 14, 0, Math.PI * 2);
@@ -241,45 +259,36 @@
         function spin() {
             if (spinning) return;
             spinning = true;
-            const target = Math.floor(Math.random() * songs.length);
-            // spin several full rotations + land so target segment is at top (–π/2)
-            const targetAngle = -(target * seg + seg / 2) - Math.PI / 2;
-            const totalSpin = Math.PI * 2 * (5 + Math.random() * 3) + targetAngle - angle;
-            const startAngle = angle;
-            const duration = 3000 + Math.random() * 1000;
-            const t0 = performance.now();
-
-            function ease(t) {
-                // cubic ease-out
-                return 1 - Math.pow(1 - t, 3);
-            }
+            var totalSpin = Math.PI * 2 * (4 + Math.random() * 4) + Math.random() * Math.PI * 2;
+            var startAngle = angle;
+            var duration = 3500 + Math.random() * 1500;
+            var t0 = performance.now();
 
             function frame(now) {
-                const elapsed = now - t0;
-                const progress = Math.min(elapsed / duration, 1);
-                angle = startAngle + totalSpin * ease(progress);
+                var elapsed = now - t0;
+                var progress = Math.min(elapsed / duration, 1);
+                // quartic ease-out for natural deceleration
+                var ease = 1 - Math.pow(1 - progress, 4);
+                angle = startAngle + totalSpin * ease;
                 drawWheel(angle);
                 if (progress < 1) {
                     requestAnimationFrame(frame);
                 } else {
                     spinning = false;
-                    // flash winning segment
-                    let flashes = 0;
-                    const flashInterval = setInterval(function() {
-                        ctx.beginPath();
-                        ctx.moveTo(cx, cy);
-                        ctx.arc(cx, cy, r, angle + target * seg, angle + target * seg + seg);
-                        ctx.closePath();
-                        ctx.fillStyle = flashes % 2 === 0 ? 'rgba(255,255,255,0.4)' : colors[target];
-                        ctx.fill();
+                    // read which segment the arrow actually points to
+                    var winner = getWinner(angle);
+                    // flash the winning segment
+                    var flashes = 0;
+                    var flashInterval = setInterval(function() {
+                        drawWheel(angle, flashes % 2 === 0 ? winner : -1);
                         flashes++;
                         if (flashes >= 6) {
                             clearInterval(flashInterval);
-                            drawWheel(angle);
-                            audio.src = 'good-music/' + songs[target];
+                            drawWheel(angle, winner);
+                            audio.src = 'good-music/' + songs[winner];
                             audio.play();
                             playing = true;
-                            btn.innerHTML = '&#9646;&#9646; music';
+                            btn.innerHTML = '&#9646;&#9646; g';
                         }
                     }, 150);
                 }
@@ -290,7 +299,6 @@
         drawWheel(angle);
 
         audio.addEventListener('ended', function() {
-            // auto-spin for next song
             wrap.style.display = 'block';
             spin();
         });
@@ -302,7 +310,7 @@
                 spin();
             } else {
                 audio.pause();
-                btn.innerHTML = '&#9654; music';
+                btn.innerHTML = '&#9654; g';
                 playing = false;
                 wrap.style.display = 'none';
             }
