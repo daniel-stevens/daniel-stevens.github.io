@@ -51,7 +51,7 @@
 
     <div style="margin-top: 40px; position: relative; display: inline-block;">
         <audio id="music-player" preload="none"></audio>
-        <button id="music-btn" type="button" style="font-family: monospace; font-size: 14px; background: none; color: #666; border: 1px solid #ccc; padding: 4px 12px; cursor: pointer;">&#9654; g</button>
+        <button id="music-btn" type="button" style="font-family: monospace; font-size: 14px; background: none; color: #666; border: 1px solid #ccc; padding: 4px 12px; cursor: pointer;">&#9654; gamble</button>
         <div id="roulette-wrap" style="display:none; margin-top:12px; position:relative;">
             <div id="roulette-pointer" style="text-align:center; font-size:22px; line-height:1; pointer-events:none; color:#222;">&#9660;</div>
             <canvas id="roulette" width="220" height="220" style="display:block; margin:0 auto;"></canvas>
@@ -156,9 +156,13 @@
     <div id="webgl-fallback" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; z-index:9999; background:#000; color:#0f0; font-family:monospace; justify-content:center; align-items:center; text-align:center; padding:40px;"></div>
     <div id="loading-screen" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; z-index:12000; background:#000; justify-content:center; align-items:center; font-family:monospace; color:#00ff88;">
         <div style="text-align:center;">
-            <div style="font-size:24px; letter-spacing:4px; text-shadow:0 0 20px rgba(0,255,136,0.6);">LOADING</div>
-            <div id="loading-dots" style="font-size:32px; margin-top:8px; letter-spacing:6px;">...</div>
-            <div style="font-size:12px; color:rgba(0,255,136,0.4); margin-top:16px; letter-spacing:2px;">Initializing space-time continuum</div>
+            <div id="loading-spinner"></div>
+            <div style="font-size:24px; letter-spacing:4px; text-shadow:0 0 20px rgba(0,255,136,0.6); margin-top:28px;">LOADING</div>
+            <div id="loading-percent" style="font-size:34px; margin-top:10px; letter-spacing:4px;">0%</div>
+            <div style="width:240px; height:4px; margin:16px auto 0; background:rgba(0,255,136,0.15); border-radius:2px; overflow:hidden;">
+                <div id="loading-bar-inner" style="width:0%; height:100%; background:linear-gradient(90deg,#00ff88,#00ffcc); box-shadow:0 0 12px rgba(0,255,136,0.6); transition:width 0.25s ease;"></div>
+            </div>
+            <div id="loading-dots" style="font-size:12px; color:rgba(0,255,136,0.4); margin-top:18px; letter-spacing:2px;">Initializing space-time continuum</div>
         </div>
     </div>
     <div id="pause-menu" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; z-index:11000; background:rgba(0,0,0,0.85); justify-content:center; align-items:center; font-family:monospace; color:#00ff88; pointer-events:auto;">
@@ -188,7 +192,10 @@
     <style>
         #threejs-canvas { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 9999; }
         @keyframes loadingPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.2; } }
-        #loading-dots { animation: loadingPulse 1.2s ease-in-out infinite; }
+        #loading-dots { animation: loadingPulse 1.6s ease-in-out infinite; }
+        @keyframes loadingSpin { to { transform: rotate(360deg); } }
+        #loading-spinner { width: 58px; height: 58px; margin: 0 auto; border: 4px solid rgba(0,255,136,0.15); border-top-color: #00ff88; border-radius: 50%; box-shadow: 0 0 18px rgba(0,255,136,0.35); animation: loadingSpin 0.9s linear infinite; }
+        #loading-percent { font-variant-numeric: tabular-nums; }
     </style>
     <canvas id="threejs-canvas"></canvas>
     <script>
@@ -287,7 +294,7 @@
                             audio.src = 'good-music/' + songs[winner];
                             audio.play();
                             playing = true;
-                            btn.innerHTML = '&#9646;&#9646; g';
+                            btn.innerHTML = '&#9646;&#9646; gamble';
                         }
                     }, 150);
                 }
@@ -309,7 +316,7 @@
                 spin();
             } else {
                 audio.pause();
-                btn.innerHTML = '&#9654; g';
+                btn.innerHTML = '&#9654; gamble';
                 playing = false;
                 wrap.style.display = 'none';
             }

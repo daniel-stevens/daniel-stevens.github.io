@@ -4,13 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Good Reads - Daniel Stevens</title>
-    <meta name="description" content="Daniel Stevens' recommended reading list - curated books on personal development, business, finance, psychology, philosophy, strategy, negotiation, and health.">
+    <meta name="description" content="Daniel Stevens' recommended reading list - click the book to reveal titles one by one.">
     <meta name="author" content="Daniel Stevens">
-    <meta name="theme-color" content="#000000">
+    <meta name="theme-color" content="#fdfcf8">
     <link rel="canonical" href="https://danielstevens.org/library.html">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>D</text></svg>">
     <meta property="og:title" content="Good Reads - Daniel Stevens">
-    <meta property="og:description" content="Curated reading list - books on personal development, business, finance, psychology, philosophy, strategy, negotiation, and health.">
+    <meta property="og:description" content="Click the book to reveal a random title from Daniel Stevens' reading list.">
     <meta property="og:url" content="https://danielstevens.org/library.html">
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="Daniel Stevens">
@@ -19,149 +19,214 @@
     <meta property="og:image:height" content="630">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="Good Reads - Daniel Stevens">
-    <meta name="twitter:description" content="Curated reading list - books on personal development, business, finance, psychology, philosophy, strategy, and health.">
+    <meta name="twitter:description" content="Click the book to reveal a random title from Daniel Stevens' reading list.">
     <meta name="twitter:image" content="https://danielstevens.org/og-image.png">
-    <script type="application/ld+json">
-    {
-        "@context": "https://schema.org",
-        "@type": "CollectionPage",
-        "name": "Good Reads",
-        "description": "Daniel Stevens' recommended reading list",
-        "url": "https://danielstevens.org/library.html",
-        "author": {
-            "@type": "Person",
-            "name": "Daniel Stevens",
-            "url": "https://danielstevens.org/"
+    <style>
+        * { box-sizing: border-box; }
+        html, body { margin: 0; height: 100%; }
+        body {
+            min-height: 100vh;
+            background: #fdfcf8;
+            font-family: Georgia, "Times New Roman", serif;
+            overflow: hidden;
         }
-    }
-    </script>
+
+        /* layer that holds the scattered titles */
+        #stage {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+        }
+
+        .book-title {
+            position: absolute;
+            max-width: min(80vw, 360px);
+            text-align: center;
+            line-height: 1.25;
+            pointer-events: none;
+            transform: translate(-50%, -50%) rotate(var(--rot)) scale(1);
+            text-shadow: 0 1px 0 rgba(255, 255, 255, 0.7);
+            animation: pop-in 0.4s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+        }
+        @keyframes pop-in {
+            from { opacity: 0; transform: translate(-50%, -50%) rotate(var(--rot)) scale(0.25); }
+            to   { opacity: 1; transform: translate(-50%, -50%) rotate(var(--rot)) scale(1); }
+        }
+
+        /* the clickable book */
+        #book {
+            position: fixed;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            background: none;
+            border: none;
+            padding: 0;
+            margin: 0;
+            cursor: pointer;
+            z-index: 9999;
+            line-height: 1;
+            -webkit-tap-highlight-color: transparent;
+        }
+        #book:focus { outline: none; }
+        #book:focus-visible #bookglyph { outline: 2px dashed #c0a060; outline-offset: 8px; border-radius: 6px; }
+        #bookglyph {
+            display: inline-block;
+            font-size: clamp(4rem, 14vw, 8rem);
+            filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.18));
+            animation: bob 2.6s ease-in-out infinite;
+        }
+        @keyframes bob {
+            0%, 100% { transform: translateY(0) rotate(-4deg); }
+            50%      { transform: translateY(-10px) rotate(4deg); }
+        }
+        #book:active #bookglyph { animation: none; }
+
+        /* faint hint, disappears after first click */
+        #hint {
+            position: fixed;
+            left: 50%;
+            top: calc(50% + clamp(3.4rem, 11vw, 6rem));
+            transform: translateX(-50%);
+            z-index: 9998;
+            font-size: 0.8rem;
+            letter-spacing: 0.16em;
+            text-transform: uppercase;
+            color: #b3ad9f;
+            pointer-events: none;
+            white-space: nowrap;
+            animation: fade-pulse 2.2s ease-in-out infinite;
+            transition: opacity 0.5s ease;
+        }
+        #hint.gone { opacity: 0; animation: none; }
+        @keyframes fade-pulse {
+            0%, 100% { opacity: 0.35; }
+            50%      { opacity: 0.8; }
+        }
+
+        /* small navigation, kept */
+        #home {
+            position: fixed;
+            top: 16px;
+            left: 18px;
+            z-index: 9999;
+            font-size: 0.85rem;
+            letter-spacing: 0.04em;
+            color: #8a857c;
+            text-decoration: none;
+        }
+        #home:hover { color: #333; text-decoration: underline; }
+    </style>
 </head>
 <body>
-<big>Library</big>
-<p><a href="index.html">Back to Home</a></p>
+    <a id="home" href="index.html">&larr; Back to Home</a>
 
-<p>I enjoy reading, any books marked with a &#9733; I would read again, multiple stars I already have. Reviews coming soon.</p>
+    <div id="stage"></div>
 
+    <button id="book" type="button" aria-label="Reveal a random book"><span id="bookglyph">&#128218;</span></button>
+    <div id="hint">click the book</div>
 
-<h2>Personal Development</h2>
-<ul>
-    <li>
-        <strong>The Unplugged Alpha</strong> - Richard Cooper &#9733; &#9733;
-    </li>
-    <li>
-        <strong>Principles: Life and Work</strong> - Ray Dalio &#9733;
-    </li>
-    <li>
-        <strong>How to Stop Worrying and Start Living: Time-Tested Methods for Conquering Worry</strong> - Dale Carnegie &#9733;
-    </li>
-    <li>
-        <strong>Can't Hurt Me: Master Your Mind and Defy the Odds</strong> - David Goggins &#9733;
-    </li>
-    <li>
-        <strong>Atomic Habits: Tiny Changes, Remarkable Results</strong> - James Clear
-    </li>
-    <li>
-        <strong>The Chimp Paradox</strong> - Prof Steve Peters
-    </li>
-    <li>
-        <strong>Breaking the Habit of Being Yourself</strong> - Dr. Joe Dispenza
-    </li>
-    <li>
-        <strong>The Miracle Morning</strong> - Hal Elrod
-    </li>
-</ul>
+    <script>
+        // Just the titles, nothing else.
+        const TITLES = `The Unplugged Alpha
+Principles: Life and Work
+How to Stop Worrying and Start Living: Time-Tested Methods for Conquering Worry
+Can't Hurt Me: Master Your Mind and Defy the Odds
+Atomic Habits: Tiny Changes, Remarkable Results
+The Chimp Paradox
+Breaking the Habit of Being Yourself
+The Miracle Morning
+Overdeliver: Build a Business for a Lifetime Playing the Long Game in Direct Response Marketing
+The Millionaire Fastlane
+Unscripted
+The 4-Hour Work Week
+Crush It!: Why NOW Is the Time to Cash In on Your Passion
+The Intelligent Investor
+Rich Dad Poor Dad: 20th Anniversary Edition
+Thinking, Fast and Slow
+The Art of Being
+Louder Than Words
+Deep Work: Rules for Focused Success in a Distracted World
+The Compound Effect: Multiply Your Success One Simple Step at a Time
+Hyperfocus
+The Expectation Effect
+Meditations: The Philosophy Classic
+The Power of Now
+Antifragile
+Never Split the Difference: Negotiating as if Your Life Depended on It
+Blue Ocean Strategy: How to Create Uncontested Market Space and Make Competition Irrelevant
+Game Theory: A Very Short Introduction
+Why We Sleep: The New Science of Sleep and Dreams`
+            .trim()
+            .split("\n")
+            .map(function (s) { return s.trim(); });
 
-<h2>Business & Finance</h2>
-<ul>
-    <li>
-        <strong>Overdeliver: Build a Business for a Lifetime Playing the Long Game in Direct Response Marketing</strong> - Brian Kurtz &#9733;
-    </li>
-    <li>
-        <strong>The Millionaire Fastlane</strong> - MJ DeMarco &#9733;
-    </li>
-    <li>
-        <strong>Unscripted</strong> - MJ DeMarco &#9733;
-    </li>
-    <li>
-        <strong>The 4-Hour Work Week</strong> - Timothy Ferriss
-    </li>
-    <li>
-        <strong>Crush It!: Why NOW Is the Time to Cash In on Your Passion</strong> - Gary Vaynerchuk
-    </li>
-    <li>
-        <strong>The Intelligent Investor</strong> - Benjamin Graham
-    </li>
-    <li>
-        <strong>Rich Dad Poor Dad: 20th Anniversary Edition</strong> - Robert T. Kiyosaki
-    </li>
-</ul>
+        const COLORS = [
+            "#1a1a1a", "#c0392b", "#2c3e50", "#8e44ad", "#16a085",
+            "#d35400", "#2980b9", "#27ae60", "#c2185b", "#00695c", "#5d4037"
+        ];
 
-<h2>Psychology & Mindset</h2>
-<ul>
-    <li>
-        <strong>Thinking, Fast and Slow</strong> - Daniel Kahneman
-    </li>
-    <li>
-        <strong>The Art of Being</strong> - Erich Fromm
-    </li>
-    <li>
-        <strong>Louder Than Words</strong> - Joe Navarro, Toni Sciarra Poynter
-    </li>
-    <li>
-        <strong>Deep Work: Rules for Focused Success in a Distracted World</strong> - Cal Newport
-    </li>
-    <li>
-        <strong>The Compound Effect: Multiply Your Success One Simple Step at a Time</strong> - Darren Hardy
-    </li>
-    <li>
-        <strong>Hyperfocus</strong> - Chris Bailey
-    </li>
-    <li>
-        <strong>The Expectation Effect</strong> - David Robson
-    </li>
-</ul>
+        // Fisher-Yates shuffle -> queue of titles. No repeats until all shown.
+        let queue = [];
+        function refill() {
+            queue = TITLES.slice();
+            for (let i = queue.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                const tmp = queue[i];
+                queue[i] = queue[j];
+                queue[j] = tmp;
+            }
+        }
+        refill();
 
-<h2>Philosophy</h2>
-<ul>
-    <li>
-        <strong>Meditations: The Philosophy Classic</strong> &#9733;
-    </li>
-    <li>
-        <strong>The Power of Now</strong> - Eckhart Tolle &#9733;
-    </li>
-    <li>
-        <strong>Antifragile</strong> - Nassim Nicholas Taleb &#9733;
-    </li>
-</ul>
+        function rand(min, max) { return Math.random() * (max - min) + min; }
 
-<h2>Strategy & Negotiation</h2>
-<ul>
-    <li>
-        <strong>Never Split the Difference: Negotiating as if Your Life Depended on It</strong> - Chris Voss, Tahl Raz &#9733; &#9733;
-    </li>
-    <li>
-        <strong>Blue Ocean Strategy: How to Create Uncontested Market Space and Make Competition Irrelevant</strong> - W. Chan Kim, Renee Mauborgne
-    </li>
-    <li>
-        <strong>Game Theory: A Very Short Introduction</strong>
-    </li>
-</ul>
+        const stage = document.getElementById("stage");
+        const hint = document.getElementById("hint");
+        const book = document.getElementById("book");
+        const glyph = document.getElementById("bookglyph");
+        let z = 1;
 
-<h2>Health & Wellness</h2>
-<ul>
-    <li>
-        <strong>Why We Sleep: The New Science of Sleep and Dreams</strong> - Matthew Walker
-    </li>
-</ul>
+        // The book grows a little and tilts a little with every click.
+        let bookScale = 1;
+        let bookRot = 0;
 
-<h2>Additional Reading</h2>
-<p>
-    For further insightful reading, I highly recommend checking out
-</p>
-<p>
-    <a href="https://paulgraham.com/articles.html" target="_blank">Paul Graham</a>
-</p>
+        function spitOut() {
+            if (queue.length === 0) refill();
+            const title = queue.pop();
 
-<p><a href="index.html">Back to Home</a></p>
+            const el = document.createElement("span");
+            el.className = "book-title";
+            el.textContent = title;
+            el.style.setProperty("--rot", rand(0, 360).toFixed(1) + "deg");
+            el.style.left = rand(8, 92).toFixed(2) + "%";
+            el.style.top = rand(10, 90).toFixed(2) + "%";
+            el.style.fontSize = rand(15, 38).toFixed(1) + "px";
+            el.style.color = COLORS[Math.floor(Math.random() * COLORS.length)];
+            el.style.zIndex = String(z++);
+
+            stage.appendChild(el);
+        }
+
+        book.addEventListener("click", function () {
+            hint.classList.add("gone");
+
+            // grow a little, tilt a little — and keep it accumulating
+            bookScale = Math.min(bookScale + 0.06, 3.4);
+            bookRot += (Math.random() < 0.5 ? -1 : 1) * rand(7, 15);
+            book.style.transform =
+                "translate(-50%, -50%) rotate(" + bookRot.toFixed(1) + "deg) scale(" + bookScale.toFixed(3) + ")";
+
+            glyph.animate(
+                [
+                    { transform: "scale(1)" },
+                    { transform: "scale(1.3)" },
+                    { transform: "scale(1)" }
+                ],
+                { duration: 280, easing: "cubic-bezier(0.2, 1.4, 0.4, 1)" }
+            );
+            spitOut();
+        });
+    </script>
 </body>
 </html>

@@ -704,7 +704,7 @@ function beginTransformation() {
     document.body.style.opacity = '1';
 
     try {
-      initThreeScene(canvas);
+      initThreeScene(canvas).catch((e) => console.error('Three.js init failed:', e));
     } catch (e) {
       console.error('Three.js init failed:', e);
     }
@@ -976,7 +976,27 @@ function updateChaseCamera(camera, shipGroup, physics, input, delta) {
 // Phase 3 — Three.js scene
 // ---------------------------------------------------------------------------
 
-function initThreeScene(canvas) {
+async function initThreeScene(canvas) {
+  // --- Loading progress -----------------------------------------------------
+  // The build below is heavy and synchronous, so we yield to the browser
+  // between groups of work. That lets the spinner repaint and the percentage
+  // advance to reflect how much of the scene has actually been built.
+  const _loadingPercentEl = document.getElementById('loading-percent');
+  const _loadingBarEl = document.getElementById('loading-bar-inner');
+  function setLoadProgress(p) {
+    const pct = Math.max(0, Math.min(100, Math.round(p * 100)));
+    if (_loadingPercentEl) _loadingPercentEl.textContent = pct + '%';
+    if (_loadingBarEl) _loadingBarEl.style.width = pct + '%';
+  }
+  function _yieldFrame() {
+    return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  }
+  async function loadStep(p) {
+    setLoadProgress(p);
+    await _yieldFrame();
+  }
+  await loadStep(0);
+
   const qualityLevel = getAutoQuality();
   const preset = QUALITY_PRESETS[qualityLevel];
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: preset.antialias, preserveDrawingBuffer: true });
@@ -1003,11 +1023,15 @@ function initThreeScene(canvas) {
   lights.rim.position.set(0, 5, -15);
   scene.add(lights.ambient, lights.key, lights.fill, lights.rim);
 
+  await loadStep(0.06);
+
   // Non-font elements
   const stars = createStarfield(scene, preset.stars);
   const ambient = createAmbientParticles(scene, preset.ambient);
   const bookGroup = createFloatingBooks(scene);
   const codeDebrisGroup = createCodeDebris(scene, qualityLevel);
+
+  await loadStep(0.16);
 
   // Ship group
   const shipGroup = new THREE.Group();
@@ -1029,12 +1053,16 @@ function initThreeScene(canvas) {
   const thruster = createThrusterParticles(preset.thruster);
   scene.add(thruster.mesh);
 
+  await loadStep(0.24);
+
   // Over-the-top effects
   const speedLines = createSpeedLines(scene, preset.speedLines);
   const boostFlash = createBoostFlash(camera);
   const rainbowTrail = createRainbowTrail(scene, preset.trails);
   const minimapCtx = initMinimap();
   const flipBurst = createFlipBurst(scene);
+
+  await loadStep(0.32);
 
   // Round 2 effects
   const asteroids = createAsteroidField(scene, preset.asteroids, preset.debris);
@@ -1045,6 +1073,9 @@ function initThreeScene(canvas) {
   const contrailL = createContrail(scene, -8, preset.contrails);
   const contrailR = createContrail(scene, 8, preset.contrails);
   const warpTunnel = createWarpTunnel(scene, preset.warpSegments);
+
+  await loadStep(0.45);
+
   const shockwaves = createShockwavePool(scene);
   const missiles = createMissilePool(scene);
   const explosions = createExplosionPool(scene);
@@ -1055,6 +1086,9 @@ function initThreeScene(canvas) {
   const nebulaWisps = createNebulaWisps(scene, preset.nebulaWisps);
   const nebulaTint = createNebulaTint(camera);
   const debris = createDebrisPool(scene);
+
+  await loadStep(0.58);
+
   const sound = createSoundEngine();
   const lightning = createLightningPool(scene);
   const blackHole = createBlackHole(scene);
@@ -1068,6 +1102,8 @@ function initThreeScene(canvas) {
   const planetAmbient = createPlanetAmbient(sound);
   const stationBeacon = createStationBeacon(sound);
   const asteroidAmbient = createAsteroidFieldAmbient(sound);
+
+  await loadStep(0.70);
 
   const elements = {
     stars, ambient, titleMesh: null, tagMeshes: [], linkMeshes: [],
@@ -1120,6 +1156,8 @@ function initThreeScene(canvas) {
     renderFn = () => renderer.render(scene, camera);
   }
 
+  await loadStep(0.80);
+
   elements.bloomPass = bloomPass;
   elements.empMeshes = createEMPMesh(scene, shipGroup);
 
@@ -1134,6 +1172,8 @@ function initThreeScene(canvas) {
   const input = createInputState(canvas);
   input.touchState = isMobile ? createTouchControls(input) : null;
   const physics = createShipPhysics();
+
+  await loadStep(0.87);
 
   // RGB intensity slider
   const rgbSlider = document.getElementById('rgb-slider');
@@ -1254,6 +1294,8 @@ function initThreeScene(canvas) {
   applyEngineCustomization(state, elements);
   applyShieldCustomization(state, elements, shipGroup);
 
+  await loadStep(0.93);
+
   // Quality dropdown listener
   const qualitySelect = document.getElementById('quality-select');
   if (qualitySelect) {
@@ -1281,6 +1323,8 @@ function initThreeScene(canvas) {
     elements.titleMesh.material.envMapIntensity = 0.3;
   }
 
+  await loadStep(0.98);
+
   // Konami code callback
   input._konamiCallback = (code) => checkKonamiCode(state, code, elements.sound);
 
@@ -1293,6 +1337,7 @@ function initThreeScene(canvas) {
   }
 
   // Hide loading screen with fade
+  await loadStep(1);
   const loadingScreen = document.getElementById('loading-screen');
   if (loadingScreen) {
     loadingScreen.style.transition = 'opacity 0.6s ease';
@@ -1311,7 +1356,7 @@ function initThreeScene(canvas) {
       audio.src = 'good-music/' + songs[Math.floor(Math.random() * songs.length)];
       audio.play().catch(() => {});
       const btn = document.getElementById('music-btn');
-      if (btn) { btn.innerHTML = '&#9646;&#9646; g'; }
+      if (btn) { btn.innerHTML = '&#9646;&#9646; gamble'; }
     }
   } catch(e) {}
 
