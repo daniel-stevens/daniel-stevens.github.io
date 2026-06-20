@@ -627,34 +627,33 @@ fontLoader.load(
 const trigger = document.getElementById('prompt-trigger');
 
 if (trigger) {
-  trigger.addEventListener('click', startTypingAnimation, { once: true });
+  trigger.addEventListener('click', showCoffeePrompt, { once: true });
 }
 
 // ---------------------------------------------------------------------------
-// Phase 2 — Typing animation
+// Phase 2 — Coffee prompt: "click to drink coffee" starts the loading
 // ---------------------------------------------------------------------------
 
-function startTypingAnimation() {
-  const textSpan = document.createElement('span');
-  textSpan.style.cssText = 'font-family:monospace; font-size:14px; color:#333; display:block; margin-top:12px;';
-  trigger.appendChild(textSpan);
+function showCoffeePrompt() {
+  trigger.innerHTML = '';
+  const coffee = document.createElement('div');
+  coffee.id = 'coffee-prompt';
+  coffee.style.cssText = 'cursor:pointer; user-select:none; text-align:center;';
 
-  let i = 0;
-  const speed = 30;
+  const cup = document.createElement('div');
+  cup.className = 'coffee-cup';
+  cup.textContent = '☕';
 
-  const interval = setInterval(() => {
-    if (i < PROMPT_TEXT.length) {
-      textSpan.textContent += PROMPT_TEXT[i];
-      i++;
-      if (i > PROMPT_TEXT.length * 0.6 && Math.random() > 0.9) {
-        document.body.style.filter = 'brightness(0.95)';
-        setTimeout(() => { document.body.style.filter = ''; }, 60);
-      }
-    } else {
-      clearInterval(interval);
-      setTimeout(beginTransformation, 1200);
-    }
-  }, speed);
+  const label = document.createElement('div');
+  label.textContent = 'click to drink coffee';
+  label.style.cssText = 'font-family:monospace; font-size:14px; color:#333; margin-top:12px; letter-spacing:1px;';
+
+  coffee.appendChild(cup);
+  coffee.appendChild(label);
+  trigger.appendChild(coffee);
+
+  // Clicking the coffee is what actually kicks off the loading sequence.
+  coffee.addEventListener('click', beginTransformation, { once: true });
 }
 
 // ---------------------------------------------------------------------------
@@ -981,12 +980,12 @@ async function initThreeScene(canvas) {
   // The build below is heavy and synchronous, so we yield to the browser
   // between groups of work. That lets the spinner repaint and the percentage
   // advance to reflect how much of the scene has actually been built.
-  const _loadingPercentEl = document.getElementById('loading-percent');
-  const _loadingBarEl = document.getElementById('loading-bar-inner');
+  const _loadingCoffeeEl = document.getElementById('loading-coffee');
+  const COFFEE_MAX = 30;
   function setLoadProgress(p) {
-    const pct = Math.max(0, Math.min(100, Math.round(p * 100)));
-    if (_loadingPercentEl) _loadingPercentEl.textContent = pct + '%';
-    if (_loadingBarEl) _loadingBarEl.style.width = pct + '%';
+    // The progress indicator is coffee: more emojis appear as it loads.
+    const cups = Math.max(0, Math.min(COFFEE_MAX, Math.round(p * COFFEE_MAX)));
+    if (_loadingCoffeeEl) _loadingCoffeeEl.textContent = '☕'.repeat(cups);
   }
   function _yieldFrame() {
     return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));

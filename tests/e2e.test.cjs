@@ -98,9 +98,10 @@ function assert(condition, message) {
   // ===========================================================================
 
   console.log('\n--- Test 4: Transformation ---');
-  await page.click('#prompt-trigger');
+  await page.click('#prompt-trigger');       // shows the coffee prompt
+  await page.click('#coffee-prompt');        // "click to drink coffee" starts loading
 
-  // Wait for typing (~8s) + pause (1.2s) + fade (1.6s) + scene init + rendering (11s)
+  // Wait for fade (1.6s) + staged scene init + rendering
   console.log('  Waiting 22s for full transformation...');
   await page.waitForTimeout(22000);
 
